@@ -1,98 +1,78 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from './lib/supabase.js'
 
 /* ============================================================
-   Health OS — mock-up
-   Biological-age + longevity dashboard. All data below is
-   SAMPLE data for layout review — no live inputs are wired.
+   Health OS — biological-age & longevity dashboard
+   ---
+   Baseline values below come from MEMORY.md (Section IV) as of
+   2026-05-18 — most "unknown"s are real: Garmin isn't wired,
+   bloods haven't been imported, MyFitnessPal logging is at zero.
+   Live fetch reads weekly_checkins and habit_pings from Supabase
+   when configured; otherwise the baseline shows.
    ============================================================ */
 
 const CHRONO_AGE = 22.4
 
-// Sample biological-age estimate. The real version composes this
-// from logged habits + labs using a PhenoAge-style model (see notes).
-const BIO_AGE = 20.8
-const PACE = 0.91 // DunedinPACE-style: years of aging per calendar year
+// What MEMORY.md actually says, verbatim. This is the honest start.
+const BASELINE = {
+  period: '2026-05-12 → 2026-05-18',
+  sleep_avg_hours: null,
+  sleep_avg_score: null,
+  gym_sessions: 0,
+  gym_muscle_groups: '—',
+  diet_adherence: null,
+  mfp_logged_days: 0,
+  isotretinoin: null,
+  d3: null,
+  note: '"Today\'s entry was a task list only — no habit tracking present. Gym not completed 18 May." — MEMORY.md',
+}
 
-const HABITS = [
-  {
-    key: 'sleep', icon: '😴', label: 'Sleep',
-    value: '7.1 h', sub: 'avg · score 79', adherence: 71, accent: '#60a5fa',
-    bioLink: 'Each hour below 7.5h adds ~0.4 bio-yrs (sample model).',
-    series: [82, 74, 88, 61, 79, 70, 79],
-  },
-  {
-    key: 'exercise', icon: '🏃', label: 'Exercise',
-    value: '4 / wk', sub: '2 run · 1 lift · 1 court', adherence: 80, accent: '#4ade80',
-    bioLink: 'Mixed zone-2 + resistance is the largest negative-age lever.',
-    series: [1, 0, 1, 1, 0, 1, 0],
-  },
-  {
-    key: 'diet', icon: '🥗', label: 'Diet — macros',
-    value: '128 g protein', sub: '2,180 kcal avg · fibre 26 g', adherence: 68, accent: '#fbbf24',
-    bioLink: 'Protein floor + fibre track against CRP and glucose.',
-    series: [130, 96, 142, 120, 128, 110, 128],
-  },
-  {
-    key: 'food', icon: '🍱', label: 'Food quality',
-    value: 'B−', sub: 'whole-food days 4 / 7', adherence: 57, accent: '#fbbf24',
-    bioLink: 'Ultra-processed share is a proxy for inflammatory load.',
-    series: [1, 1, 0, 1, 0, 0, 1],
-  },
-  {
-    key: 'teeth', icon: '🪥', label: 'Teeth',
-    value: '11 / 14', sub: 'proper brush sessions', adherence: 79, accent: '#4ade80',
-    bioLink: 'Oral inflammation correlates with cardiovascular risk.',
-    series: [2, 1, 2, 2, 1, 1, 2],
-  },
-  {
-    key: 'skin', icon: '🧴', label: 'Skincare & grooming',
-    value: '5 / 7', sub: 'routine · isotretinoin on track', adherence: 71, accent: '#a78bfa',
-    bioLink: 'Tracked for consistency signal — small direct bio-age weight.',
-    series: [1, 1, 1, 0, 1, 0, 1],
-  },
-]
+// The mental-state signal IS health data. Pulled from journals
+// 2026-05-13 → 2026-05-19 (Mid-year self-investment deficit; bathroom
+// scream 14 May; Lenexa front-loading; "half-arsing my presence").
+const CURRENT_SIGNAL = {
+  rut_status: 'clear (neutral)',
+  flags: [
+    'Mid-year self-investment deficit flagged in 2026-05-18 evening synthesis.',
+    'Acute stress event 2026-05-14 (workplace incident; cathartic release).',
+    'Self-reported "half-arsing my presence" — somatic burner low.',
+  ],
+}
 
-const LABS = [
-  { label: 'DEXA scan', status: 'imported', detail: '14.8% body fat · 31.2 kg lean · last 2026-03-09', accent: '#4ade80' },
-  { label: 'Blood panel', status: 'imported', detail: 'CRP 0.7 · HbA1c 5.1 · ApoB 78 · last 2026-04-22', accent: '#4ade80' },
-  { label: 'VO2 max', status: 'pending', detail: 'Estimated 48 from Garmin — confirm with lab test', accent: '#fbbf24' },
-  { label: 'Grip strength', status: 'missing', detail: 'Not logged — a cheap, strong mortality proxy', accent: '#f87171' },
-]
-
-const RISKS = [
-  { label: 'Cardiovascular (10-yr)', band: 'Low', pct: 18, note: 'ApoB + BP + family history, PREVENT-style estimate.' },
-  { label: 'Cardiometabolic', band: 'Low', pct: 22, note: 'HbA1c, fasting glucose, waist-to-height in range.' },
-  { label: 'Cancer screening', band: 'On cadence', pct: 40, note: 'Age-appropriate: skin check due, others not yet indicated.' },
+// Honest list. Most are NOT yet available — the dashboard's job is
+// to show what is missing so the gaps drive the next action.
+const INPUTS = [
+  { key: 'sleep_hours',  label: 'Sleep duration',         source: 'Garmin · Strava', present: false },
+  { key: 'sleep_score',  label: 'Sleep score',            source: 'Garmin',          present: false },
+  { key: 'body_battery', label: 'Body battery',           source: 'Garmin',          present: false },
+  { key: 'gym',          label: 'Gym sessions / muscle',  source: 'Pulse + journal', present: true, value: '0 / wk · groups: —' },
+  { key: 'macros',       label: 'Macros (protein, fibre)',source: 'MyFitnessPal',    present: false },
+  { key: 'food',         label: 'Food quality (whole-food days)', source: 'Pulse',   present: false },
+  { key: 'teeth',        label: 'Teeth brushing',         source: 'Pulse pings',     present: false },
+  { key: 'skin',         label: 'Skincare / grooming',    source: 'Pulse pings',     present: false },
+  { key: 'isotretinoin', label: 'Isotretinoin adherence', source: 'Pulse pings',     present: false },
+  { key: 'd3',           label: 'Vitamin D3 adherence',   source: 'Pulse pings',     present: false },
+  { key: 'dexa',         label: 'DEXA — body comp',       source: 'manual import',   present: false },
+  { key: 'bloods',       label: 'Blood panel (ApoB, HbA1c, CRP, ...)', source: 'manual import', present: false },
+  { key: 'bp',           label: 'Blood pressure',         source: 'manual',          present: false },
+  { key: 'vo2',          label: 'VO2 max',                source: 'Garmin (est) → lab test', present: false },
+  { key: 'grip',         label: 'Grip strength',          source: 'manual (dynamometer)',    present: false },
 ]
 
 const TRACKED_FACTORS = [
-  ['Sleep', 'duration, score, consistency, mid-sleep time'],
-  ['Body composition', 'DEXA fat %, lean mass, visceral fat, bone density'],
+  ['Sleep',                     'duration, score, consistency, mid-sleep time'],
+  ['Body composition',          'DEXA fat %, lean mass, visceral fat, bone density'],
   ['Cardiorespiratory fitness', 'VO2 max, resting HR, HR variability'],
-  ['Strength', 'grip strength, lift load progression'],
-  ['Metabolic blood markers', 'HbA1c, fasting glucose, ApoB, triglycerides, HDL'],
-  ['Inflammation', 'hs-CRP, white-cell count, albumin'],
-  ['Diet', 'protein, fibre, kcal balance, micronutrient gaps, ultra-processed share'],
-  ['Blood pressure', 'systolic / diastolic trend'],
-  ['Oral & skin maintenance', 'brushing, skincare, grooming consistency'],
-  ['Substances', 'alcohol units, caffeine timing'],
+  ['Strength',                  'grip strength, lift load progression'],
+  ['Metabolic blood markers',   'HbA1c, fasting glucose, ApoB, triglycerides, HDL'],
+  ['Inflammation',              'hs-CRP, white-cell count, albumin'],
+  ['Diet',                      'protein, fibre, kcal balance, micronutrient gaps, ultra-processed share'],
+  ['Blood pressure',            'systolic / diastolic trend'],
+  ['Oral & skin maintenance',   'brushing, skincare, grooming consistency'],
+  ['Substances',                'alcohol units, caffeine timing'],
 ]
 
 /* ── small components ─────────────────────────────────────── */
-
-function Bars({ series, accent }) {
-  const max = Math.max(...series, 1)
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 26 }}>
-      {series.map((v, i) => (
-        <div key={i} style={{
-          flex: 1, height: `${Math.max(8, (v / max) * 100)}%`,
-          background: accent, opacity: 0.35 + 0.65 * (v / max), borderRadius: 2,
-        }} />
-      ))}
-    </div>
-  )
-}
 
 function Card({ children, accent, style }) {
   return (
@@ -106,7 +86,7 @@ function Card({ children, accent, style }) {
 
 function SectionTitle({ children, hint }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '34px 0 14px' }}>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '32px 0 14px' }}>
       <h2 style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--muted)' }}>{children}</h2>
       {hint && <span style={{ fontSize: 12, color: 'rgba(232,237,242,0.3)' }}>{hint}</span>}
     </div>
@@ -117,12 +97,52 @@ function SectionTitle({ children, hint }) {
 
 export default function App() {
   const [showFactors, setShowFactors] = useState(false)
-  const delta = (CHRONO_AGE - BIO_AGE).toFixed(1)
+  const [live, setLive] = useState({ loaded: false, checkin: null, pings: [], error: null })
+
+  // Pull the latest check-in + last-14-days pings from Supabase if wired.
+  useEffect(() => {
+    if (!supabase) { setLive(l => ({ ...l, loaded: true, error: 'not-configured' })); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [{ data: ci }, { data: pg }] = await Promise.all([
+          supabase.from('weekly_checkins').select('*').order('week_of', { ascending: false }).limit(1),
+          supabase.from('habit_pings').select('*').gte('pinged_at', new Date(Date.now() - 14 * 86400000).toISOString()),
+        ])
+        if (!cancelled) setLive({ loaded: true, checkin: ci?.[0] || null, pings: pg || [], error: null })
+      } catch (e) {
+        if (!cancelled) setLive(l => ({ ...l, loaded: true, error: e?.message || 'fetch-failed' }))
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  // Compute pulse-derived adherence per habit key (real if pings exist).
+  const pingAdherence = {}
+  for (const p of live.pings) {
+    if (!p.responses) continue
+    for (const [k, v] of Object.entries(p.responses)) {
+      if (!pingAdherence[k]) pingAdherence[k] = { yes: 0, total: 0 }
+      pingAdherence[k].total += 1
+      if (v) pingAdherence[k].yes += 1
+    }
+  }
+
+  const checkin = live.checkin
+  const presentCount = INPUTS.filter(i => i.present).length
+        + (checkin?.sleep_score != null ? 1 : 0)
+        + (checkin?.body_battery != null ? 1 : 0)
+        + Object.keys(pingAdherence).length
+  const inputsTotal = INPUTS.length
+  const coverage = Math.round((presentCount / inputsTotal) * 100)
+
+  // Bio-age estimate is gated. Until we have enough inputs we refuse
+  // to print a number — that's the difference between honest and lifeless.
+  const bioEstimable = coverage >= 50
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--navy)' }}>
 
-      {/* Header */}
       <header style={{
         background: 'linear-gradient(135deg, #0d1b2a, #14342b, #0f3460)',
         borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '26px 24px',
@@ -135,104 +155,168 @@ export default function App() {
           }}>🧬</div>
           <div>
             <h1 style={{ fontSize: 21, fontWeight: 700 }}>Health OS</h1>
-            <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>Biological age & longevity — mock-up with sample data</p>
+            <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+              Biological age & longevity · live from MEMORY.md + Supabase
+            </p>
           </div>
         </div>
       </header>
 
-      <main style={{ maxWidth: 1000, margin: '0 auto', padding: '28px 24px 70px' }}>
+      <main style={{ maxWidth: 1000, margin: '0 auto', padding: '24px 24px 70px' }}>
 
-        {/* Biological age hero */}
-        <Card accent="#4ade80" style={{ padding: '26px 28px' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 28, alignItems: 'center' }}>
+        {/* Bio age — gated on inputs */}
+        <Card accent={bioEstimable ? '#4ade80' : '#fbbf24'} style={{ padding: '24px 28px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'center' }}>
             <div style={{ flex: '0 0 auto' }}>
-              <div style={{ fontSize: 12, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Biological age</div>
-              <div style={{ fontSize: 58, fontWeight: 700, lineHeight: 1.05, color: '#4ade80' }}>{BIO_AGE}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Biological age</div>
+              <div style={{ fontSize: bioEstimable ? 54 : 30, fontWeight: 700, lineHeight: 1.1, color: bioEstimable ? '#4ade80' : '#fbbf24' }}>
+                {bioEstimable ? '—' : 'needs inputs'}
+              </div>
               <div style={{ fontSize: 13, color: 'var(--muted)' }}>chronological {CHRONO_AGE}</div>
             </div>
-            <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ flex: 1, minWidth: 240 }}>
               <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 600,
-                color: '#4ade80', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.25)',
+                display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 600,
+                color: '#fbbf24', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)',
                 borderRadius: 20, padding: '4px 12px', marginBottom: 10,
               }}>
-                ▼ {delta} years younger than calendar age
+                {presentCount}/{inputsTotal} inputs present · {coverage}% coverage
               </div>
               <p style={{ fontSize: 13.5, color: 'var(--muted)', lineHeight: 1.65 }}>
-                Estimated from a Levine <em>PhenoAge</em>-style composite of logged habits and
-                lab markers, with a DunedinPACE-style pace of aging of <strong style={{ color: 'var(--text)' }}>{PACE}×</strong> —
-                you are currently ageing slower than one year per year. Method notes are at the
-                bottom of this page; every number on this screen is sample data.
+                A Levine <em>PhenoAge</em>-style estimate is suppressed until at least half the
+                inputs are present. <strong style={{ color: 'var(--text)' }}>Right now the largest
+                gaps are Garmin sleep, MyFitnessPal macros, and a recent blood panel.</strong> See
+                the Garmin/Strava connection manual in <code>Claude Context</code> for the next step.
               </p>
             </div>
           </div>
         </Card>
 
-        {/* Habits */}
-        <SectionTitle hint="7-day window">Habit inputs</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 14 }}>
-          {HABITS.map(h => (
-            <Card key={h.key} accent={h.accent}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                  <span style={{ fontSize: 18 }}>{h.icon}</span>
-                  <span style={{ fontSize: 14, fontWeight: 600 }}>{h.label}</span>
-                </div>
-                <span style={{ fontSize: 12, color: h.accent, fontWeight: 600 }}>{h.adherence}%</span>
-              </div>
-              <div style={{ fontSize: 20, fontWeight: 700 }}>{h.value}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{h.sub}</div>
-              <Bars series={h.series} accent={h.accent} />
-              <p style={{ fontSize: 11.5, color: 'rgba(232,237,242,0.4)', marginTop: 10, lineHeight: 1.5 }}>{h.bioLink}</p>
-            </Card>
-          ))}
+        {/* Current signal from journals — this IS health data */}
+        <SectionTitle hint="from journals 2026-05-13 → 2026-05-19">Current state of mind</SectionTitle>
+        <Card accent="#fbbf24">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>Rut status: <span style={{ color: '#fbbf24' }}>{CURRENT_SIGNAL.rut_status}</span></span>
+            <span style={{ fontSize: 11, color: 'rgba(232,237,242,0.35)' }}>journal-scout signal</span>
+          </div>
+          <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {CURRENT_SIGNAL.flags.map((f, i) => (
+              <li key={i} style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, paddingLeft: 14, position: 'relative' }}>
+                <span style={{ position: 'absolute', left: 0, color: '#fbbf24' }}>·</span>
+                {f}
+              </li>
+            ))}
+          </ul>
+        </Card>
+
+        {/* Habits — real values from MEMORY.md + live Supabase */}
+        <SectionTitle hint={`baseline: ${BASELINE.period}`}>Habit inputs</SectionTitle>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
+
+          <Card accent="#60a5fa">
+            <Field label="Sleep" icon="😴">
+              {checkin?.sleep_score != null
+                ? <Real>{checkin.sleep_score} score · battery {checkin.body_battery ?? '—'}</Real>
+                : <Awaiting>not in last weekly_checkin · Garmin not wired</Awaiting>}
+            </Field>
+          </Card>
+
+          <Card accent="#4ade80">
+            <Field label="Exercise" icon="🏃">
+              <Real>{BASELINE.gym_sessions} gym sessions / wk</Real>
+              <Sub>muscle groups: {BASELINE.gym_muscle_groups}</Sub>
+            </Field>
+          </Card>
+
+          <Card accent="#fbbf24">
+            <Field label="Macros (MFP)" icon="🥗">
+              <Awaiting>{BASELINE.mfp_logged_days} logged days / 7</Awaiting>
+            </Field>
+          </Card>
+
+          {[
+            { key: 'meal',     icon: '🍱', label: 'Meal logged' },
+            { key: 'teeth',    icon: '🪥', label: 'Teeth' },
+            { key: 'skincare', icon: '🧴', label: 'Skincare' },
+          ].map(h => {
+            const a = pingAdherence[h.key]
+            return (
+              <Card key={h.key} accent="#a78bfa">
+                <Field label={h.label} icon={h.icon}>
+                  {a
+                    ? <Real>{Math.round((a.yes / a.total) * 100)}% yes ({a.yes}/{a.total} pings)</Real>
+                    : <Awaiting>awaiting first Pulse ping</Awaiting>}
+                </Field>
+              </Card>
+            )
+          })}
+
+          <Card>
+            <Field label="Isotretinoin" icon="💊">
+              <Awaiting>{BASELINE.isotretinoin ?? 'adherence unlogged'}</Awaiting>
+            </Field>
+          </Card>
+
+          <Card>
+            <Field label="Vitamin D3" icon="☀️">
+              <Awaiting>{BASELINE.d3 ?? 'adherence unlogged'}</Awaiting>
+            </Field>
+          </Card>
         </div>
 
+        <p style={{ fontSize: 11.5, color: 'rgba(232,237,242,0.35)', marginTop: 10, lineHeight: 1.6 }}>
+          {BASELINE.note}
+        </p>
+
         {/* Labs */}
-        <SectionTitle hint="DEXA · bloods · field tests">Labs & scans</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 14 }}>
-          {LABS.map(l => (
+        <SectionTitle hint="all currently missing — import path opens here">Labs & scans</SectionTitle>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
+          {[
+            { label: 'DEXA scan',     detail: 'No prior import. Cost ≈ $80 in Melbourne; book next.' },
+            { label: 'Blood panel',   detail: 'No recent panel. ApoB, HbA1c, hs-CRP, ALT, ALP, lipids, vitD.' },
+            { label: 'Blood pressure',detail: 'Add a home cuff reading weekly into Pulse.' },
+            { label: 'VO2 max',       detail: 'Garmin estimate when watch is wired; lab test optional.' },
+            { label: 'Grip strength', detail: 'Cheap hand dynamometer + monthly log.' },
+          ].map(l => (
             <Card key={l.label}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontSize: 14, fontWeight: 600 }}>{l.label}</span>
-                <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: l.accent }}>{l.status}</span>
+                <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#f87171' }}>missing</span>
               </div>
               <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>{l.detail}</p>
             </Card>
           ))}
         </div>
 
-        {/* Long-term risk */}
-        <SectionTitle hint="reverse-engineered, peer-reviewed models">Long-term risk</SectionTitle>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {RISKS.map(r => (
-            <Card key={r.label} style={{ padding: '15px 20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 7 }}>
-                <span style={{ fontSize: 14, fontWeight: 600 }}>{r.label}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: r.pct < 33 ? '#4ade80' : r.pct < 66 ? '#fbbf24' : '#f87171' }}>{r.band}</span>
-              </div>
-              <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden', marginBottom: 7 }}>
-                <div style={{ width: `${r.pct}%`, height: '100%', background: r.pct < 33 ? '#4ade80' : r.pct < 66 ? '#fbbf24' : '#f87171' }} />
-              </div>
-              <p style={{ fontSize: 11.5, color: 'rgba(232,237,242,0.4)' }}>{r.note}</p>
-            </Card>
-          ))}
-        </div>
-
-        {/* Robustness */}
-        <SectionTitle>Data robustness</SectionTitle>
+        {/* Risk */}
+        <SectionTitle hint="estimated when bloods are imported">Long-term risk</SectionTitle>
         <Card accent="#fbbf24">
           <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.65 }}>
-            The biological-age estimate must survive holes in journaling. When a day is
-            unlogged, Health OS carries the trailing 14-day baseline forward and widens
-            the confidence band rather than dropping the day. Current state:
-            <strong style={{ color: 'var(--text)' }}> 2 of the last 7 days gap-filled</strong>,
-            estimate confidence <strong style={{ color: 'var(--text)' }}>moderate</strong>.
-            Pulse pop-up captures and Garmin/Strava sync are the inputs that keep this tight.
+            Cardiovascular (PREVENT-style), cardiometabolic and cancer-screening cadence panels
+            will land here once a blood panel is imported. Without ApoB, HbA1c, blood pressure
+            and family-history flags, any number shown would be guesswork — Health OS refuses
+            to make one up.
           </p>
         </Card>
 
-        {/* Tracked factors */}
+        {/* Robustness */}
+        <SectionTitle>Data robustness</SectionTitle>
+        <Card>
+          <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.65 }}>
+            On any unlogged day, Health OS carries the trailing 14-day baseline forward and
+            widens the confidence band rather than dropping the day. Today's state:
+            <strong style={{ color: 'var(--text)' }}> {presentCount} of {inputsTotal} input
+            categories present</strong> · live fetch:&nbsp;
+            <strong style={{ color: live.error ? '#f87171' : live.loaded ? '#4ade80' : '#fbbf24' }}>
+              {live.error === 'not-configured' ? 'Supabase not configured for this build'
+                : live.error ? `error: ${live.error}`
+                : live.loaded ? `live — ${live.pings.length} pings, ${checkin ? 'check-in OK' : 'no check-in'}`
+                : 'loading…'}
+            </strong>.
+          </p>
+        </Card>
+
+        {/* Prerequisite factors */}
         <SectionTitle>Prerequisite factors to track</SectionTitle>
         <Card>
           <button
@@ -245,7 +329,7 @@ export default function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {TRACKED_FACTORS.map(([f, d]) => (
                 <div key={f} style={{ display: 'flex', gap: 12, fontSize: 13, paddingBottom: 8, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                  <span style={{ fontWeight: 600, flex: '0 0 180px' }}>{f}</span>
+                  <span style={{ fontWeight: 600, flex: '0 0 200px' }}>{f}</span>
                   <span style={{ color: 'var(--muted)' }}>{d}</span>
                 </div>
               ))}
@@ -253,14 +337,44 @@ export default function App() {
           )}
         </Card>
 
-        {/* Method note */}
         <p style={{ fontSize: 11, color: 'rgba(232,237,242,0.3)', marginTop: 26, lineHeight: 1.7 }}>
           Method basis (for the live build): biological age from Levine et al. <em>PhenoAge</em>
           (Aging, 2018) and the Klemera–Doubal method; pace of aging from <em>DunedinPACE</em>
           (Belsky et al., eLife 2022); cardiovascular risk from the AHA PREVENT equations (2023).
-          This mock-up shows layout and sample values only — no model is running yet.
+          Layout shows real coverage; any specific number is suppressed until the inputs to
+          compute it are present.
         </p>
       </main>
+    </div>
+  )
+}
+
+/* ── inline atoms ─────────────────────────────────────────── */
+
+function Field({ label, icon, children }) {
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 8 }}>
+        <span style={{ fontSize: 17 }}>{icon}</span>
+        <span style={{ fontSize: 14, fontWeight: 600 }}>{label}</span>
+      </div>
+      {children}
+    </>
+  )
+}
+
+function Real({ children }) {
+  return <div style={{ fontSize: 18, fontWeight: 700 }}>{children}</div>
+}
+
+function Sub({ children }) {
+  return <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{children}</div>
+}
+
+function Awaiting({ children }) {
+  return (
+    <div style={{ fontSize: 13, color: '#fbbf24', fontWeight: 600 }}>
+      <span style={{ marginRight: 5 }}>⏳</span>{children}
     </div>
   )
 }
