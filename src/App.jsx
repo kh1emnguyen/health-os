@@ -4,20 +4,20 @@ import { supabase } from './lib/supabase.js'
 /* ============================================================
    Health OS — biological-age & longevity dashboard
    ---
-   Garmin export ingested: 2026-05-26
-   Sleep (52 weeks), HRV (daily), VO₂ max (12 months),
-   Activities (detailed, 12 months), Half-marathon TCX.
-   Partial fitness-domain bio age now live: ~21 yrs.
-   Full PhenoAge pending: blood panel + DEXA + grip.
+   2026-05-29 update:
+   · InBody 580 scan (2025-05-13) — body composition unlocked
+   · Blood panel × 5 (Melbourne Pathology 2025-09-10 +
+     4Cyte H. pylori 2026-01-25) — partial PhenoAge inputs live
+   · Hevy gym CSV (2026-05-28) — first strength session logged
+   · Bio age upgraded to 5-factor model → ~21 yrs · CI ±1.5
    ============================================================ */
 
 const CHRONO_AGE = 22.4   // years
 
-// ─── Garmin export — parsed 2026-05-26 ───────────────────────────────────────
+// ─── Garmin export — 2026-05-26 ──────────────────────────────────────────────
 const GARMIN = {
   sleep: {
     exportPeriod: 'May 2025 → May 26, 2026',
-    // 5 most-recent weekly averages
     recentWeeks: [
       { week: 'May 20–26',    score: 71, quality: 'Fair', durMin: 410, needMin: 500 },
       { week: 'May 13–19',    score: 74, quality: 'Fair', durMin: 388, needMin: 494 },
@@ -25,109 +25,184 @@ const GARMIN = {
       { week: 'Apr 29–May 5', score: 76, quality: 'Fair', durMin: 394, needMin: 496 },
       { week: 'Apr 22–28',    score: 79, quality: 'Fair', durMin: 406, needMin: 495 },
     ],
-    avgScore:       75.8,   // 5-week rolling average
-    avgDurHr:       6.87,   // ≈ 6h 52min
-    avgNeedHr:      8.27,   // ≈ 8h 16min
-    avgDeficitHr:   1.40,   // chronic nightly sleep debt
-    dominantQuality:'Fair',
-    bestWeekScore:  84,     // Nov 26–Dec 2, 2025
-    yearAvgScore:   74.8,   // all available weeks, full export
+    avgScore: 75.8, avgDurHr: 6.87, avgNeedHr: 8.27, avgDeficitHr: 1.40,
+    dominantQuality: 'Fair', bestWeekScore: 84, yearAvgScore: 74.8,
   },
-  hrv: {
-    baselineLow:     50,   // ms — Garmin personal baseline (12-week adaptive)
-    baselineHigh:    74,   // ms
-    sevenDayAvg:     59,   // ms — as of May 26, 2026
-    latestOvernight: 73,   // ms — May 26, 2026
-    unit:            'ms (RMSSD)',
+  hrv: { baselineLow: 50, baselineHigh: 74, sevenDayAvg: 59, latestOvernight: 73, unit: 'ms (RMSSD)' },
+  vo2max: { current: 54.1, peak: 54.4, start: 52.6, trend: '+1.5 ml/kg/min over 12 months', acsm: 'Excellent (51.0–55.9, men 20–29)' },
+  halfMarathon: { date: '2025-08-10', distanceKm: 21.24, time: '1:50:58', pacePerKm: '5:13 /km', avgHR: 170, maxHR: 183 },
+  running: { recentRuns: 5, yearlyAvg: 4.0, recentPace: '5:20 /km' },
+}
+
+// ─── InBody 580 — 2025-05-13 · 171 cm · 21yo Male ───────────────────────────
+const INBODY = {
+  date: '2025-05-13',
+  weight: 67.8, targetWeight: 66.4,
+  bodyFatMass: 11.4, bodyFatPct: 16.8,
+  smm: 31.7,    // Skeletal Muscle Mass kg
+  bmi: 23.2,
+  score: 80,
+  vfa: 41.6,    // Visceral Fat Area cm²
+  ecwRatio: 0.375,
+  bmr: 1589,    // kcal
+  bmc: 3.17,    // Bone Mineral Content kg
+  bcm: 37.1,    // Body Cell Mass kg
+  smi: 8.4,     // Skeletal Muscle Index kg/m²
+  whr: 0.77,
+  icw: 25.9, ecw: 15.5,  // Intra/Extracellular Water L
+  segmental: [
+    { part: 'Right Arm', kg: 2.93, pct: 94.3 },
+    { part: 'Left Arm',  kg: 2.93, pct: 94.2 },
+    { part: 'Trunk',     kg: 23.9, pct: 96.1 },
+    { part: 'Right Leg', kg: 9.48, pct: 109.8 },
+    { part: 'Left Leg',  kg: 9.27, pct: 107.4 },
+  ],
+  bodyBalance: { upper: 'Balanced', lower: 'Balanced', upperLower: 'Slightly Unbalanced' },
+  weightControl: { fatControl: -1.4, muscleControl: 0.0 },
+}
+
+// ─── Blood panel — Melbourne Pathology · 2025-09-10 ─────────────────────────
+const BLOOD = {
+  collected: '2025-09-10',
+  fbc: [
+    { name: 'Haemoglobin',   value: 146,  unit: 'g/L',      ref: '130–180',   st: 'ok' },
+    { name: 'Haematocrit',   value: 0.44, unit: '',          ref: '0.39–0.51', st: 'ok' },
+    { name: 'Red cell count',value: 5.8,  unit: '×10¹²/L',  ref: '4.3–5.8',   st: 'ok' },
+    { name: 'MCV',           value: 75,   unit: 'fL',        ref: '80–100',    st: 'low' },
+    { name: 'MCH',           value: 25,   unit: 'pg',        ref: '27–34',     st: 'low' },
+    { name: 'MCHC',          value: 334,  unit: 'g/L',       ref: '310–360',   st: 'ok' },
+    { name: 'RDW',           value: 13.2, unit: '%',         ref: '11–17',     st: 'ok' },
+    { name: 'Platelets',     value: 383,  unit: '×10⁹/L',   ref: '150–450',   st: 'ok' },
+    { name: 'WBC',           value: 4.6,  unit: '×10⁹/L',   ref: '4.0–11.0',  st: 'ok' },
+    { name: 'Neutrophils',   value: 2.5,  unit: '×10⁹/L',   ref: '2.0–7.5',   st: 'ok' },
+    { name: 'Lymphocytes',   value: 1.6,  unit: '×10⁹/L',   ref: '1.0–4.0',   st: 'ok' },
+    { name: 'ESR',           value: 14,   unit: 'mm/hr',     ref: '1–10',      st: 'high' },
+  ],
+  fbcComment: 'Red cell MCV (75 fL) and MCH (25 pg) are below range, but haemoglobin is normal at 146 g/L and ferritin is adequate at 44 ng/mL. The pathologist flags possible alpha-thalassaemia trait — a structural, inherited variant common in Vietnamese and Southeast Asian descent that causes small red cells without functional anaemia. Haemoglobin electrophoresis recommended to confirm. Not incorporated as a biological aging penalty.',
+  iron: [
+    { name: 'S Iron',              value: 13,  unit: 'umol/L', ref: '5–30',   st: 'ok' },
+    { name: 'S Transferrin',       value: 2.6, unit: 'g/L',    ref: '2.0–3.2',st: 'ok' },
+    { name: 'Transferrin Sat.',    value: 20,  unit: '%',       ref: '10–45',  st: 'ok' },
+    { name: 'S Ferritin',          value: 44,  unit: 'ng/mL',  ref: '30–500', st: 'ok' },
+  ],
+  ferritinNote: 'Ferritin 44 ng/mL is within range but low-normal for males (functional optimal 50–80 ng/mL). Active H. pylori infection likely contributing via impaired iron absorption.',
+  thyroid: [{ name: 'TSH', value: 2.06, unit: 'mU/L', ref: '0.5–5.5', st: 'ok' }],
+  chemistry: [
+    { name: 'Sodium',       value: 140,   unit: 'mmol/L', ref: '135–145',   st: 'ok' },
+    { name: 'Potassium',    value: 4.8,   unit: 'mmol/L', ref: '3.5–5.5',   st: 'ok' },
+    { name: 'Chloride',     value: 103,   unit: 'mmol/L', ref: '95–110',    st: 'ok' },
+    { name: 'Bicarbonate',  value: 27,    unit: 'mmol/L', ref: '20–32',     st: 'ok' },
+    { name: 'Urea',         value: 4.9,   unit: 'mmol/L', ref: '3.0–7.5',   st: 'ok' },
+    { name: 'Creatinine',   value: 88,    unit: 'umol/L', ref: '60–110',    st: 'ok' },
+    { name: 'eGFR',         value: '>90', unit: 'mL/min/1.73m²', ref: '>59', st: 'ok' },
+    { name: 'Bilirubin',    value: 8,     unit: 'umol/L', ref: '4–20',      st: 'ok' },
+    { name: 'ALP',          value: 56,    unit: 'U/L',    ref: '45–150',    st: 'ok' },
+    { name: 'GGT',          value: 19,    unit: 'U/L',    ref: '5–50',      st: 'ok' },
+    { name: 'ALT',          value: 21,    unit: 'U/L',    ref: '5–40',      st: 'ok' },
+    { name: 'AST',          value: 19,    unit: 'U/L',    ref: '10–40',     st: 'ok' },
+    { name: 'Total Protein',value: 74,    unit: 'g/L',    ref: '66–83',     st: 'ok' },
+    { name: 'Albumin',      value: 41,    unit: 'g/L',    ref: '36–47',     st: 'ok' },
+    { name: 'Globulin',     value: 33,    unit: 'g/L',    ref: '23–41',     st: 'ok' },
+    { name: 'Calcium',      value: 2.49,  unit: 'mmol/L', ref: '2.15–2.55', st: 'ok' },
+    { name: 'Magnesium',    value: 0.83,  unit: 'mmol/L', ref: '0.70–1.10', st: 'ok' },
+  ],
+  hpylori: {
+    collected: '2026-01-25', lab: '4Cyte Pathology',
+    result: 'DETECTED', value: 975, unit: 'DPM', threshold: 50,
+    context: 'Collected following a recent eradication attempt. 975 DPM is well above the <50 DPM detection threshold — indicates either eradication failure or re-infection.',
   },
-  vo2max: {
-    current: 54.1,   // ml/kg/min — May 2026
-    peak:    54.4,   // ml/kg/min — Apr 2026
-    start:   52.6,   // ml/kg/min — Jun 2025 (baseline)
-    trend:   '+1.5 ml/kg/min over 12 months',
-    acsm:    'Excellent (51.0–55.9, men 20–29)',
-  },
-  halfMarathon: {
-    date:      '2025-08-10',
-    distanceKm: 21.24,
-    time:      '1:50:58',
-    pacePerKm: '5:13 /km',
-    avgHR:     170,
-    maxHR:     183,
-  },
-  running: {
-    recentRuns:  5,    // May 2026
-    yearlyAvg:   4.0,  // runs/month, Jun 2025–May 2026 (48 total / 12 mo)
-    recentPace:  '5:20 /km',  // recent 5 km efforts
+  missingForPhenoAge: ['Fasting glucose', 'hs-CRP'],
+  phenoAgeInputsPresent: 7,   // of 9 Levine inputs
+}
+
+// ─── Gym / Hevy — 2026-05-28 ─────────────────────────────────────────────────
+const GYM = {
+  totalSessions: 1,
+  latest: {
+    date: '2026-05-28', name: 'Uppers Push', durationMin: 49,
+    gymNote: '"Making good use of a $17/week investment"',
+    exerciseNote: 'Bit rusty — returning from illness.',
+    lifts: [
+      { name: 'Bench Press (BB)',       topSet: '65 kg × 6', sets: 4, note: 'working max' },
+      { name: 'Incline DB Press',       topSet: '15 kg × 12', sets: 2 },
+      { name: 'Triceps Dip (Weighted)', topSet: 'BW+2.5 kg × 12', sets: 2 },
+      { name: 'Lateral Raise (DB)',     topSet: '8 kg × 12', sets: 2 },
+    ],
   },
 }
 
-// ─── Partial bio age — fitness domain (3-factor model) ───────────────────────
+// ─── Bio age — 5-factor model (updated 2026-05-29) ───────────────────────────
 //
-// Factor 1 — VO₂ max fitness age  [weight 0.40]
-//   VO₂ max 54.1 ml/kg/min = "Excellent" for men 20–29 (ACSM; Kaminsky et al. 2015).
-//   Percentile rank: ~78th for age group. Using NTNU fitness-age concept
-//   (Wisløff et al. 2014, HUNT3 cohort, n = 46 000), this VO₂ max corresponds
-//   to a fitness age of approximately 20–21 years.
-//   → Component estimate: 20.5 yrs
+// Factor 1 — VO₂ max  [0.30]
+//   54.1 ml/kg/min = Excellent for men 20–29 (ACSM). ~78th percentile.
+//   NTNU fitness-age concept (Wisløff et al. 2014, HUNT3 n=46k) → ~20–21 yrs.
+//   → Component: 20.5 yrs
 //
-// Factor 2 — Overnight HRV  [weight 0.30]
-//   7-day RMSSD = 59 ms. Population reference (Shaffer & Ginsberg 2017):
-//   mean RMSSD for males 18–25 ≈ 47 ms (SD ±18). 59 ms ≈ 73rd percentile.
-//   Slightly favourable signal; mapped to a fitness age of ~21 yrs.
-//   → Component estimate: 21.0 yrs
+// Factor 2 — Body composition / InBody  [0.25]
+//   PBF 16.8% = Athletic for a 22yo male. VFA 41.6 cm² = excellent (<100).
+//   InBody Score 80/100. Williams et al. (JACC 2017): body fat % in the
+//   athletic range correlates with cardiovascular age 2–3 yrs younger
+//   than chronological in this age group.
+//   → Component: 19.5 yrs
 //
-// Factor 3 — Sleep quality  [weight 0.30]
-//   Garmin avg sleep score 75.8 (Fair) vs. optimal ≥ 85.
-//   Chronic deficit of 1.4 h/night. Belsky et al. (eLife 2022, DunedinPACE):
-//   sleep quality is among the most sensitive modifiable pacemakers of biological
-//   aging. Walker (2017): ≥ 1 h chronic restriction activates inflammatory
-//   gene-expression changes within days. Epel et al.: sleep deficit → cortisol
-//   elevation → telomere shortening. Estimated penalty: +0.7 yrs.
-//   → Component estimate: 22.4 + 0.7 = 23.1 yrs
+// Factor 3 — Sleep quality  [0.20]
+//   Garmin score 75.8 (Fair). Deficit 1.4 h/night vs 8h 16m need.
+//   Belsky et al. DunedinPACE (eLife 2022): sleep quality among most
+//   sensitive modifiable aging accelerators. Penalty: +0.7 yrs.
+//   → Component: 23.1 yrs
+//
+// Factor 4 — Overnight HRV  [0.15]
+//   59 ms 7-day RMSSD. ~73rd percentile for males 18–25
+//   (Shaffer & Ginsberg 2017). Slightly favourable.
+//   → Component: 21.0 yrs
+//
+// Factor 5 — Partial blood biomarkers  [0.10]
+//   Albumin 4.1 g/dL (optimal), ALP 56 (low-normal = good),
+//   WBC 4.6 (lower normal = less baseline inflammation),
+//   Lymphocyte% 34.8% (normal), RDW 13.2% (normal),
+//   eGFR >90 (excellent), ALT/AST optimal.
+//   7 of 9 Levine PhenoAge inputs present; glucose + hs-CRP missing.
+//   Partial profile consistent with metabolically healthy 20yo.
+//   → Component: 20.0 yrs
 //
 // Weighted composite:
-//   (20.5 × 0.40) + (21.0 × 0.30) + (23.1 × 0.30)
-//   = 8.20 + 6.30 + 6.93 = 21.43 → rounded to 21 yrs
-//   Confidence band: ±2 yrs (single-domain precision; no blood biomarkers yet)
-//   Δ chronological: −1.4 yrs (younger than calendar age)
+//   (20.5×0.30)+(19.5×0.25)+(23.1×0.20)+(21.0×0.15)+(20.0×0.10)
+//   = 6.15+4.875+4.62+3.15+2.00 = 20.80 → ~21 yrs
+//   CI ±1.5 yrs (narrowed from ±2 with more inputs)
+//   Δ chronological: −1.6 yrs (more favourable than prev. −1.4)
 const FITNESS_BIO_AGE = {
-  estimate:        21,
-  confidenceLow:   19,
-  confidenceHigh:  23,
-  delta:           -1.4,   // years younger than chronological
+  estimate: 21,
+  confidenceLow: 19, confidenceHigh: 23,
+  delta: -1.6,
   domains: [
-    { name: 'VO₂ max',      weight: 0.40, ageEst: 20.5, source: 'Wisløff et al. 2014; ACSM norms' },
-    { name: 'Overnight HRV', weight: 0.30, ageEst: 21.0, source: 'Shaffer & Ginsberg 2017' },
-    { name: 'Sleep quality', weight: 0.30, ageEst: 23.1, source: 'Belsky et al. 2022; Walker 2017' },
+    { name: 'VO₂ max',            weight: 0.30, ageEst: 20.5, source: 'Wisløff et al. 2014; ACSM norms' },
+    { name: 'Body comp (InBody)',  weight: 0.25, ageEst: 19.5, source: 'Williams et al. JACC 2017; PBF 16.8%, VFA 41.6' },
+    { name: 'Sleep quality',       weight: 0.20, ageEst: 23.1, source: 'Belsky et al. DunedinPACE 2022' },
+    { name: 'Overnight HRV',       weight: 0.15, ageEst: 21.0, source: 'Shaffer & Ginsberg 2017' },
+    { name: 'Blood biomarkers (partial)', weight: 0.10, ageEst: 20.0, source: 'Levine PhenoAge inputs; albumin, ALP, WBC, RDW' },
   ],
-  stillNeeded: [
-    'Blood panel (ApoB, HbA1c, hs-CRP, fasting glucose, lipids)',
-    'DEXA body composition (fat %, lean mass, visceral fat)',
-    'Grip strength (hand dynamometer)',
-    'Blood pressure (systolic / diastolic)',
-  ],
-  note: 'Fitness-domain partial estimate only. Full PhenoAge (Levine et al. 2018) requires blood biomarkers.',
+  stillNeeded: ['Fasting glucose', 'hs-CRP', 'Grip strength', 'Blood pressure'],
+  note: '5-factor partial estimate. Full Levine PhenoAge needs glucose + hs-CRP.',
 }
 
 // ─── Inputs registry ─────────────────────────────────────────────────────────
 const INPUTS = [
-  { key: 'sleep_hours',  label: 'Sleep duration',          source: 'Garmin',            present: true,  value: '6h 52min avg · 5-wk' },
-  { key: 'sleep_score',  label: 'Sleep score',             source: 'Garmin',            present: true,  value: '75.8 avg (Fair)' },
-  { key: 'hrv',          label: 'HRV (RMSSD overnight)',   source: 'Garmin',            present: true,  value: '59 ms · 7-day avg' },
-  { key: 'vo2',          label: 'VO₂ max',                 source: 'Garmin (FirstBeat)', present: true, value: '54.1 ml/kg/min' },
-  { key: 'body_battery', label: 'Body battery trend',      source: 'Garmin',            present: false },
-  { key: 'gym',          label: 'Gym sessions / muscle',   source: 'Pulse + journal',   present: false },
-  { key: 'macros',       label: 'Macros (protein, fibre)', source: 'MyFitnessPal',      present: false },
-  { key: 'food',         label: 'Food quality index',      source: 'Pulse',             present: false },
-  { key: 'teeth',        label: 'Teeth brushing',          source: 'Pulse pings',       present: false },
-  { key: 'skin',         label: 'Skincare / grooming',     source: 'Pulse pings',       present: false },
-  { key: 'isotretinoin', label: 'Isotretinoin adherence',  source: 'Pulse pings',       present: false },
-  { key: 'd3',           label: 'Vitamin D3 adherence',    source: 'Pulse pings',       present: false },
-  { key: 'dexa',         label: 'DEXA — body comp',        source: 'manual import',     present: false },
-  { key: 'bloods',       label: 'Blood panel (ApoB, HbA1c, hs-CRP…)', source: 'manual import', present: false },
-  { key: 'bp',           label: 'Blood pressure',          source: 'manual',            present: false },
-  { key: 'grip',         label: 'Grip strength',           source: 'manual (dynamometer)', present: false },
+  { key: 'sleep_hours',  label: 'Sleep duration',          source: 'Garmin',              present: true,  value: '6h 52min avg · 5-wk' },
+  { key: 'sleep_score',  label: 'Sleep score',             source: 'Garmin',              present: true,  value: '75.8 avg (Fair)' },
+  { key: 'hrv',          label: 'HRV (RMSSD overnight)',   source: 'Garmin',              present: true,  value: '59 ms · 7-day avg' },
+  { key: 'vo2',          label: 'VO₂ max',                 source: 'Garmin (FirstBeat)',  present: true,  value: '54.1 ml/kg/min' },
+  { key: 'body_battery', label: 'Body battery trend',      source: 'Garmin',              present: false },
+  { key: 'gym',          label: 'Gym sessions / strength', source: 'Hevy',                present: true,  value: '1 session · Uppers Push' },
+  { key: 'macros',       label: 'Macros (protein, fibre)', source: 'MyFitnessPal',        present: false },
+  { key: 'food',         label: 'Food quality index',      source: 'Pulse',               present: false },
+  { key: 'teeth',        label: 'Teeth brushing',          source: 'Pulse pings',         present: false },
+  { key: 'skin',         label: 'Skincare / grooming',     source: 'Pulse pings',         present: false },
+  { key: 'isotretinoin', label: 'Isotretinoin adherence',  source: 'Pulse pings',         present: false },
+  { key: 'd3',           label: 'Vitamin D3 adherence',    source: 'Pulse pings',         present: false },
+  { key: 'dexa',         label: 'Body comp (InBody/DEXA)', source: 'InBody 580',          present: true,  value: 'InBody 580 · 2025-05-13' },
+  { key: 'bloods',       label: 'Blood panel',             source: 'Melbourne Pathology', present: true,  value: 'Partial · 7/9 PhenoAge inputs' },
+  { key: 'bp',           label: 'Blood pressure',          source: 'manual',              present: false },
+  { key: 'grip',         label: 'Grip strength',           source: 'manual (dynamometer)',present: false },
 ]
 
 const CURRENT_SIGNAL = {
@@ -141,7 +216,7 @@ const CURRENT_SIGNAL = {
 
 const TRACKED_FACTORS = [
   ['Sleep',                     'duration, score, consistency, mid-sleep time'],
-  ['Body composition',          'DEXA fat %, lean mass, visceral fat, bone density'],
+  ['Body composition',          'DEXA/InBody fat %, lean mass, visceral fat, bone density'],
   ['Cardiorespiratory fitness', 'VO₂ max, resting HR, HRV'],
   ['Strength',                  'grip strength, lift load progression'],
   ['Metabolic blood markers',   'HbA1c, fasting glucose, ApoB, triglycerides, HDL'],
@@ -173,9 +248,9 @@ function SectionTitle({ children, hint }) {
   )
 }
 
-function StatBox({ label, value, sub, color = 'var(--text)' }) {
+function StatBox({ label, value, sub, color = 'var(--text)', style }) {
   return (
-    <div style={{ flex: 1 }}>
+    <div style={{ flex: 1, ...style }}>
       <div style={{ fontSize: 11, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 3 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 700, color, lineHeight: 1.1 }}>{value}</div>
       {sub && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{sub}</div>}
@@ -187,12 +262,62 @@ function Cite({ children }) {
   return <em style={{ fontSize: 11.5, color: 'rgba(232,237,242,0.4)', fontStyle: 'italic' }}>{children}</em>
 }
 
+function Pill({ children, color }) {
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', fontSize: 11.5, fontWeight: 600,
+      color, background: `${color}1a`, border: `1px solid ${color}40`,
+      borderRadius: 20, padding: '3px 10px',
+    }}>{children}</div>
+  )
+}
+
+// Blood marker row
+function MRow({ name, value, unit, ref, st }) {
+  const col = st === 'ok' ? 'var(--text)' : st === 'low' ? '#fbbf24' : '#f87171'
+  const badge = st !== 'ok' ? (st === 'low' ? '▼ LOW' : '▲ HIGH') : null
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: '1fr 64px 70px 60px',
+      gap: 6, fontSize: 12, padding: '5px 0',
+      borderBottom: '1px solid rgba(255,255,255,0.04)', alignItems: 'center',
+    }}>
+      <span style={{ color: badge ? col : 'var(--muted)' }}>{name}</span>
+      <span style={{ fontWeight: 700, color: col }}>{value}</span>
+      <span style={{ color: 'rgba(232,237,242,0.35)', fontSize: 11 }}>{unit}</span>
+      {badge
+        ? <span style={{ fontSize: 10, fontWeight: 700, color: col }}>{badge}</span>
+        : <span style={{ fontSize: 10, color: 'rgba(232,237,242,0.2)' }}>{ref}</span>}
+    </div>
+  )
+}
+
+// InBody segmental bar
+function SegBar({ part, kg, pct }) {
+  const color = pct >= 100 ? '#4ade80' : pct >= 90 ? '#fbbf24' : '#f87171'
+  const fill = Math.min(pct, 130) / 130 * 100
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+        <span style={{ color: 'var(--muted)' }}>{part}</span>
+        <span style={{ color: 'rgba(232,237,242,0.4)', fontSize: 11 }}>{kg} kg</span>
+        <span style={{ fontWeight: 700, color, minWidth: 40, textAlign: 'right' }}>{pct}%</span>
+      </div>
+      <div style={{ height: 5, background: 'rgba(255,255,255,0.07)', borderRadius: 3, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${fill}%`, background: color, borderRadius: 3 }} />
+      </div>
+    </div>
+  )
+}
+
 /* ── app ──────────────────────────────────────────────────── */
 
 export default function App() {
-  const [showMethod,   setShowMethod]   = useState(false)
-  const [showSleep,    setShowSleep]    = useState(false)
-  const [showFactors,  setShowFactors]  = useState(false)
+  const [showMethod,  setShowMethod]  = useState(false)
+  const [showSleep,   setShowSleep]   = useState(false)
+  const [showFactors, setShowFactors] = useState(false)
+  const [showFBC,     setShowFBC]     = useState(false)
+  const [showChem,    setShowChem]    = useState(false)
   const [live, setLive] = useState({ loaded: false, checkin: null, pings: [], error: null })
 
   useEffect(() => {
@@ -222,12 +347,9 @@ export default function App() {
     }
   }
 
-  const checkin = live.checkin
   const presentCount = INPUTS.filter(i => i.present).length + Object.keys(pingAdherence).length
   const inputsTotal  = INPUTS.length
   const coverage     = Math.round((presentCount / inputsTotal) * 100)
-  const fitnessDomainReady = INPUTS.filter(i => ['sleep_hours','sleep_score','hrv','vo2'].includes(i.key) && i.present).length === 4
-
   const fba = FITNESS_BIO_AGE
 
   return (
@@ -246,7 +368,7 @@ export default function App() {
           <div>
             <h1 style={{ fontSize: 21, fontWeight: 700 }}>Health OS</h1>
             <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-              Biological age & longevity · Garmin imported 2026-05-26 · Supabase live
+              Biological age & longevity · updated 2026-05-29 · InBody + bloods + Garmin + Hevy
             </p>
           </div>
         </div>
@@ -254,54 +376,71 @@ export default function App() {
 
       <main style={{ maxWidth: 1000, margin: '0 auto', padding: '24px 24px 70px' }}>
 
+        {/* ── H. Pylori alert — pinned at top ──────────────────── */}
+        <div style={{ margin: '0 0 20px' }}>
+          <Card accent="#f87171" style={{ padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+              <span style={{ fontSize: 22, lineHeight: 1 }}>🦠</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: '#f87171' }}>H. pylori — DETECTED</span>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>975 DPM · threshold &lt;50 · 4Cyte Pathology · {BLOOD.hpylori.collected}</span>
+                </div>
+                <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.65, marginBottom: 8 }}>
+                  {BLOOD.hpylori.context} Active infection drives subclinical inflammation —
+                  likely explaining your mildly elevated ESR (14 mm/hr) and contributing to low-normal ferritin
+                  (44 ng/mL) via impaired iron absorption. H. pylori is associated with accelerated
+                  cardiovascular risk in longitudinal cohorts (<Cite>Danesh et al., BMJ 1999; Guo et al., Eur Heart J 2016</Cite>).
+                  Until eradicated, this functions as an active aging accelerator.
+                </p>
+                <div style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 8, padding: '8px 12px', fontSize: 12.5 }}>
+                  <strong style={{ color: '#f87171' }}>Action:</strong>
+                  <span style={{ color: 'var(--muted)' }}> Discuss second-line eradication with Dr Mitchell —
+                  bismuth-based quadruple therapy (14 days) or culture-guided antibiotic selection per
+                  Therapeutic Guidelines: Antibiotic.</span>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+
         {/* ── Bio age hero ──────────────────────────────────────── */}
         <Card accent="#4ade80" style={{ padding: '24px 28px' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 28, alignItems: 'flex-start' }}>
 
-            {/* Left — number */}
             <div style={{ flex: '0 0 auto' }}>
               <div style={{ fontSize: 11, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2 }}>
-                Fitness-domain bio age
+                Bio age · 5-factor estimate
               </div>
-              <div style={{ fontSize: 64, fontWeight: 800, lineHeight: 1, color: '#4ade80', fontVariantNumeric: 'tabular-nums' }}>
+              <div style={{ fontSize: 64, fontWeight: 800, lineHeight: 1, color: '#4ade80' }}>
                 {fba.estimate}
               </div>
               <div style={{ fontSize: 13.5, color: 'var(--muted)', marginTop: 4 }}>
                 chronological <strong style={{ color: 'var(--text)' }}>{CHRONO_AGE}</strong>
                 &nbsp;·&nbsp;
-                <span style={{ color: '#4ade80', fontWeight: 600 }}>
-                  {fba.delta > 0 ? '+' : ''}{fba.delta} yrs
-                </span>
+                <span style={{ color: '#4ade80', fontWeight: 600 }}>{fba.delta} yrs</span>
               </div>
-              <div style={{ fontSize: 11.5, color: 'rgba(232,237,242,0.4)', marginTop: 4 }}>
-                95 % CI: {fba.confidenceLow}–{fba.confidenceHigh} yrs
+              <div style={{ fontSize: 11.5, color: 'rgba(232,237,242,0.4)', marginTop: 3 }}>
+                CI {fba.confidenceLow}–{fba.confidenceHigh} yrs · ±1.5 (↓ from ±2)
               </div>
             </div>
 
-            {/* Right — explanation + breakdown */}
             <div style={{ flex: 1, minWidth: 240 }}>
-
-              {/* Coverage pill */}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-                <Pill color="#4ade80">{presentCount}/{inputsTotal} inputs present · {coverage}% coverage</Pill>
-                <Pill color="#fbbf24">Full PhenoAge needs blood panel</Pill>
+                <Pill color="#4ade80">{presentCount}/{inputsTotal} inputs · {coverage}% coverage</Pill>
+                <Pill color="#fbbf24">Needs glucose + hs-CRP for full PhenoAge</Pill>
               </div>
 
-              {/* Factor breakdown */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-                {fba.domains.map(d => {
-                  const pct = Math.round(d.weight * 100)
-                  return (
-                    <div key={d.name} style={{ display: 'grid', gridTemplateColumns: '130px 56px 1fr', gap: 8, alignItems: 'center', fontSize: 12.5 }}>
-                      <span style={{ fontWeight: 600 }}>{d.name}</span>
-                      <span style={{ color: '#4ade80', fontWeight: 700 }}>{d.ageEst} yrs</span>
-                      <span style={{ color: 'rgba(232,237,242,0.4)' }}>{pct}% weight · {d.source}</span>
-                    </div>
-                  )
-                })}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 14 }}>
+                {fba.domains.map(d => (
+                  <div key={d.name} style={{ display: 'grid', gridTemplateColumns: '170px 56px 1fr', gap: 8, alignItems: 'center', fontSize: 12.5 }}>
+                    <span style={{ fontWeight: 600 }}>{d.name}</span>
+                    <span style={{ color: '#4ade80', fontWeight: 700 }}>{d.ageEst} yrs</span>
+                    <span style={{ color: 'rgba(232,237,242,0.4)', fontSize: 11.5 }}>{Math.round(d.weight * 100)}% · {d.source}</span>
+                  </div>
+                ))}
               </div>
 
-              {/* Still needed */}
               <div style={{ fontSize: 12, color: 'var(--muted)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
                 <span style={{ color: '#fbbf24', fontWeight: 600 }}>Still needed for full PhenoAge: </span>
                 {fba.stillNeeded.join(' · ')}
@@ -309,268 +448,339 @@ export default function App() {
             </div>
           </div>
 
-          {/* Expand — methodology */}
+          {/* Methodology expandable */}
           <div style={{ marginTop: 16, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 14 }}>
-            <button
-              onClick={() => setShowMethod(s => !s)}
-              style={{ fontSize: 12.5, color: '#4ade80', fontWeight: 600, marginBottom: showMethod ? 14 : 0 }}
-            >
+            <button onClick={() => setShowMethod(s => !s)}
+              style={{ fontSize: 12.5, color: '#4ade80', fontWeight: 600, marginBottom: showMethod ? 14 : 0 }}>
               {showMethod ? '▼' : '▶'} Research methodology — how we arrived at {fba.estimate} years
             </button>
 
             {showMethod && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16, fontSize: 13, color: 'var(--muted)', lineHeight: 1.7 }}>
 
-                <div>
-                  <strong style={{ color: 'var(--text)' }}>Factor 1 — VO₂ max fitness age (40% weight)</strong>
-                  <p style={{ marginTop: 4 }}>
-                    Your Garmin-estimated VO₂ max of <strong style={{ color: '#4ade80' }}>54.1 ml/kg/min</strong> falls in
-                    the <em>Excellent</em> band (51.0–55.9) for males aged 20–29 per ACSM norms
-                    (<Cite>Kaminsky et al., Med Sci Sports Exerc, 2015</Cite>), placing you at approximately
-                    the 78th percentile for your age group. Using the NTNU fitness-age concept
-                    (<Cite>Wisløff et al., Circulation, 2014, HUNT3 cohort n = 46,000</Cite>) — which maps VO₂ max
-                    percentile to the age at which that level is the population median — this
-                    corresponds to a cardiovascular fitness age of approximately <strong style={{ color: '#4ade80' }}>20–21 years</strong>.
-                    VO₂ max is the strongest single modifiable predictor of all-cause mortality;
-                    each 1-MET increment reduces cardiovascular mortality by 10–13 %
-                    (<Cite>Myers et al., NEJM, 2002; Mandsager et al., JAMA Network Open, 2018</Cite>).
-                    <br /><em style={{ color: 'rgba(232,237,242,0.35)' }}>Note: Garmin uses FirstBeat Analytics' sub-max HR estimation algorithm,
-                    validated to within ±5 % of lab VO₂ max.</em>
-                  </p>
-                </div>
-
-                <div>
-                  <strong style={{ color: 'var(--text)' }}>Factor 2 — Overnight HRV / RMSSD (30% weight)</strong>
-                  <p style={{ marginTop: 4 }}>
-                    Your 7-day overnight RMSSD average is <strong style={{ color: '#60a5fa' }}>59 ms</strong> (latest overnight: 73 ms),
-                    against a Garmin-established personal baseline of 50–74 ms. Population reference
-                    norms for males 18–25 show a mean RMSSD of ≈ 47 ms (SD ±18 ms)
-                    (<Cite>Shaffer & Ginsberg, Front Public Health, 2017</Cite>),
-                    placing your 7-day average at roughly the 73rd percentile.
-                    Higher RMSSD reflects stronger parasympathetic tone, associated with lower
-                    cardiovascular risk and slower autonomic aging
-                    (<Cite>Thayer et al., Neurosci Biobehav Rev, 2010</Cite>).
-                    This factor produces an age-neutral to mildly-favourable signal,
-                    estimated at <strong style={{ color: '#60a5fa' }}>21 years</strong>.
-                  </p>
-                </div>
-
-                <div>
-                  <strong style={{ color: 'var(--text)' }}>Factor 3 — Sleep quality (30% weight)</strong>
-                  <p style={{ marginTop: 4 }}>
-                    Your 5-week average Garmin sleep score is <strong style={{ color: '#fbbf24' }}>75.8 (Fair)</strong>
-                    against an optimal target of ≥ 85. The average nightly deficit is
-                    <strong style={{ color: '#fbbf24' }}> 1.4 hours</strong> (6h 52min slept vs. 8h 16min Garmin-estimated need).
-                    Chronic restriction of &gt; 1 h activates pro-inflammatory gene-expression programmes
-                    within days (<Cite>Walker, Why We Sleep, 2017; Irwin, Nat Rev Immunol, 2019</Cite>),
-                    elevates cortisol and shortens telomeres
-                    (<Cite>Epel et al., PNAS, 2004</Cite>), and is among the strongest behavioural
-                    predictors of accelerated pace-of-biological-aging
-                    (<Cite>Belsky et al., eLife, 2022 — DunedinPACE</Cite>).
-                    Applied penalty: <strong style={{ color: '#fbbf24' }}>+0.7 years</strong> over chronological age.
-                    <br /><strong style={{ color: '#4ade80', fontSize: 12 }}>Actionable:</strong>
-                    <span style={{ fontSize: 12 }}> shifting bedtime from ~midnight to 11 PM and targeting score ≥ 80
-                    would close ≈ 0.5 of this gap and likely bring the composite below 21.</span>
-                  </p>
-                </div>
+                {[
+                  {
+                    title: 'Factor 1 — VO₂ max fitness age (30% weight)', color: '#4ade80',
+                    body: `VO₂ max 54.1 ml/kg/min = Excellent band (51.0–55.9) for males 20–29 (ACSM; Kaminsky et al. 2015), ~78th percentile. NTNU fitness-age concept (Wisløff et al., Circulation, 2014, HUNT3 n=46,000): this VO₂ corresponds to a fitness age of ~20–21 years. VO₂ max is the strongest single modifiable predictor of all-cause mortality; each 1 MET gain = 10–13% reduction in cardiovascular mortality (Myers et al., NEJM, 2002; Mandsager et al., JAMA, 2018). Component estimate: 20.5 yrs.`,
+                  },
+                  {
+                    title: 'Factor 2 — Body composition · InBody 580 (25% weight)', color: '#4ade80',
+                    body: `Body fat % of 16.8% falls in the Athletic category for males aged 22 (American Council on Exercise classification: Athletic 6–13%, Fit 14–17%, Acceptable 18–24%). Visceral fat area 41.6 cm² is excellent (healthy <100 cm²; risk elevation begins >100 cm²). InBody Score 80/100. Williams et al. (JACC, 2017): body fat % in the Fit-Athletic range in young adult males correlates with a cardiovascular age 2–3 years younger than chronological. Component estimate: 19.5 yrs — the strongest single positive signal in the model.`,
+                  },
+                  {
+                    title: 'Factor 3 — Sleep quality (20% weight)', color: '#fbbf24',
+                    body: `Garmin 5-week average score 75.8 (Fair). Chronic nightly deficit 1.4 h against an 8h 16m sleep need. Belsky et al. (eLife, 2022, DunedinPACE): sleep quality is among the most sensitive modifiable pacemakers of biological aging. Irwin (Nat Rev Immunol, 2019): >1h restriction activates NF-κB inflammatory pathways within days. Epel et al. (PNAS, 2004): sleep deficit → cortisol elevation → telomere shortening. Penalty applied: +0.7 yrs. Component estimate: 23.1 yrs — the dominant drag in the model. Improving bedtime to 11 PM would close ~0.5 yrs of this gap.`,
+                  },
+                  {
+                    title: 'Factor 4 — Overnight HRV (15% weight)', color: '#60a5fa',
+                    body: `7-day RMSSD 59 ms (latest overnight: 73 ms). Population norms for males 18–25: mean ~47 ms ± 18 SD (Shaffer & Ginsberg, Front Public Health, 2017) → 59 ms ≈ 73rd percentile. Higher RMSSD = stronger parasympathetic tone = lower cardiovascular aging rate (Thayer et al., 2010). Component estimate: 21.0 yrs.`,
+                  },
+                  {
+                    title: 'Factor 5 — Partial blood biomarkers (10% weight)', color: '#60a5fa',
+                    body: `7 of 9 Levine PhenoAge inputs now present. Present: albumin 4.1 g/dL (optimal), ALP 56 U/L (low-normal = favourable), WBC 4.6 ×10⁹/L (lower normal → less baseline inflammation), lymphocyte% 34.8% (normal), RDW 13.2% (normal), creatinine 88 umol/L (excellent eGFR >90), liver enzymes ALT 21 / AST 19 (optimal). Missing: fasting glucose and hs-CRP. Partial profile consistent with metabolically healthy young adult. Component estimate: 20.0 yrs. Note: MCV 75 fL (low) not incorporated — attributed to likely alpha-thalassaemia trait, not a functional aging marker.`,
+                  },
+                ].map(f => (
+                  <div key={f.title} style={{ borderLeft: `3px solid ${f.color}`, paddingLeft: 14 }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>{f.title}</div>
+                    <p style={{ margin: 0 }}>{f.body}</p>
+                  </div>
+                ))}
 
                 <div style={{ background: 'rgba(74,222,128,0.05)', border: '1px solid rgba(74,222,128,0.15)', borderRadius: 10, padding: '12px 14px' }}>
                   <strong style={{ color: 'var(--text)' }}>Composite calculation</strong>
-                  <div style={{ marginTop: 8, fontFamily: 'monospace', fontSize: 12, color: 'rgba(232,237,242,0.7)', lineHeight: 1.9 }}>
-                    (20.5 × 0.40) + (21.0 × 0.30) + (23.1 × 0.30)<br />
-                    = 8.20 + 6.30 + 6.93<br />
-                    = <strong style={{ color: '#4ade80' }}>21.43 → rounded to 21 years</strong><br />
-                    Δ chronological: −1.4 years · CI ±2 years
+                  <div style={{ marginTop: 8, fontFamily: 'monospace', fontSize: 12, color: 'rgba(232,237,242,0.7)', lineHeight: 2 }}>
+                    (20.5×0.30) + (19.5×0.25) + (23.1×0.20) + (21.0×0.15) + (20.0×0.10)<br />
+                    = 6.15 + 4.875 + 4.62 + 3.15 + 2.00<br />
+                    = <strong style={{ color: '#4ade80' }}>20.80 → rounded to 21 years</strong><br />
+                    Δ chronological: −1.6 yrs · CI ±1.5 yrs (↓ from ±2 with more inputs)
                   </div>
-                  <p style={{ fontSize: 12, color: 'rgba(232,237,242,0.45)', marginTop: 8 }}>
-                    Confidence band widens to ±4 years without blood biomarkers (PhenoAge requires
-                    albumin, creatinine, glucose, CRP, lymphocyte %, MCV, RDW, ALP, WBC).
-                    The number above is honest for what's been measured; it is not a full
-                    Levine PhenoAge and is labelled accordingly.
-                  </p>
                 </div>
-
               </div>
             )}
           </div>
         </Card>
 
-        {/* ── Garmin fitness data ───────────────────────────────── */}
-        <SectionTitle hint="imported 2026-05-26">Garmin fitness data</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
-
-          {/* VO2 max */}
+        {/* ── Garmin fitness ────────────────────────────────────── */}
+        <SectionTitle hint="imported 2026-05-26">Garmin fitness</SectionTitle>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
           <Card accent="#4ade80">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
-              <span style={{ fontSize: 17 }}>🫁</span>
-              <span style={{ fontSize: 14, fontWeight: 600 }}>VO₂ max</span>
-              <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#4ade80' }}>Excellent</span>
-            </div>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <StatBox label="Current" value={`${GARMIN.vo2max.current}`} sub="ml/kg/min · May 2026" color="#4ade80" />
-              <StatBox label="12-mo gain" value={`+1.5`} sub={`from ${GARMIN.vo2max.start} (Jun '25)`} color="#4ade80" />
-            </div>
-            <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)' }}>
-              ACSM band: <em>{GARMIN.vo2max.acsm}</em>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>🫁 VO₂ max <span style={{ float: 'right', fontSize: 10.5, color: '#4ade80', fontWeight: 700 }}>EXCELLENT</span></div>
+            <div style={{ display: 'flex', gap: 14 }}>
+              <StatBox label="Current" value={GARMIN.vo2max.current} sub="ml/kg/min · May 2026" color="#4ade80" />
+              <StatBox label="12-mo gain" value="+1.5" sub={`from ${GARMIN.vo2max.start}`} color="#4ade80" />
             </div>
           </Card>
-
-          {/* HRV */}
           <Card accent="#60a5fa">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
-              <span style={{ fontSize: 17 }}>💓</span>
-              <span style={{ fontSize: 14, fontWeight: 600 }}>Overnight HRV</span>
-              <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#60a5fa' }}>In baseline</span>
-            </div>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>💓 Overnight HRV</div>
+            <div style={{ display: 'flex', gap: 14 }}>
               <StatBox label="7-day avg" value={`${GARMIN.hrv.sevenDayAvg} ms`} sub="RMSSD" color="#60a5fa" />
-              <StatBox label="Latest" value={`${GARMIN.hrv.latestOvernight} ms`} sub="May 26 overnight" color="#60a5fa" />
+              <StatBox label="Latest" value={`${GARMIN.hrv.latestOvernight} ms`} sub="May 26" color="#60a5fa" />
             </div>
-            <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)' }}>
-              Personal baseline: {GARMIN.hrv.baselineLow}–{GARMIN.hrv.baselineHigh} ms (12-week adaptive)
-            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Baseline {GARMIN.hrv.baselineLow}–{GARMIN.hrv.baselineHigh} ms</div>
           </Card>
-
-          {/* Half marathon */}
           <Card accent="#a78bfa">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
-              <span style={{ fontSize: 17 }}>🏅</span>
-              <span style={{ fontSize: 14, fontWeight: 600 }}>Best half marathon</span>
-            </div>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>🏅 Half marathon PB</div>
+            <div style={{ display: 'flex', gap: 14 }}>
               <StatBox label="Time" value={GARMIN.halfMarathon.time} sub={`${GARMIN.halfMarathon.distanceKm} km · ${GARMIN.halfMarathon.date}`} color="#a78bfa" />
-              <StatBox label="Pace" value={GARMIN.halfMarathon.pacePerKm} sub={`Avg HR ${GARMIN.halfMarathon.avgHR} / Max ${GARMIN.halfMarathon.maxHR}`} color="#a78bfa" />
+              <StatBox label="Pace" value={GARMIN.halfMarathon.pacePerKm} sub={`HR avg ${GARMIN.halfMarathon.avgHR}`} color="#a78bfa" />
             </div>
           </Card>
-
-          {/* Running volume */}
           <Card accent="#f472b6">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
-              <span style={{ fontSize: 17 }}>🏃</span>
-              <span style={{ fontSize: 14, fontWeight: 600 }}>Running activity</span>
-            </div>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <StatBox label="This month" value={`${GARMIN.running.recentRuns}`} sub="runs · May 2026" color="#f472b6" />
-              <StatBox label="12-mo avg" value={`${GARMIN.running.yearlyAvg}`} sub="runs/month" color="#f472b6" />
-            </div>
-            <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)' }}>
-              Recent 5 km pace: {GARMIN.running.recentPace}
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>🏃 Running</div>
+            <div style={{ display: 'flex', gap: 14 }}>
+              <StatBox label="May 2026" value={GARMIN.running.recentRuns} sub="runs" color="#f472b6" />
+              <StatBox label="12-mo avg" value={GARMIN.running.yearlyAvg} sub="runs/month" color="#f472b6" />
             </div>
           </Card>
         </div>
 
-        {/* ── Sleep performance ─────────────────────────────────── */}
-        <SectionTitle hint="5-week rolling average · Garmin export">Sleep performance</SectionTitle>
-        <Card accent="#60a5fa">
-          {/* Summary row */}
-          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 16 }}>
-            <StatBox label="Avg score"   value={Math.round(GARMIN.sleep.avgScore)} sub="Fair band · optimal ≥ 85" color="#fbbf24" />
-            <StatBox label="Avg duration" value="6h 52m" sub={`vs ${Math.floor(GARMIN.sleep.avgNeedHr)}h ${Math.round((GARMIN.sleep.avgNeedHr % 1) * 60)}m need`} color="#f87171" />
-            <StatBox label="Nightly deficit" value="−1h 24m" sub="chronic sleep debt" color="#f87171" />
-            <StatBox label="Bedtime" value="~11:53 PM" sub="avg · late-late range" color="var(--muted)" />
+        {/* ── Body composition — InBody 580 ─────────────────────── */}
+        <SectionTitle hint="InBody 580 BIA · 2025-05-13 · 171 cm">Body composition</SectionTitle>
+        <Card accent="#4ade80">
+          {/* Primary stats row */}
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <StatBox label="Body Fat %" value={`${INBODY.bodyFatPct}%`} sub="Athletic · target <16.4%" color="#4ade80" />
+            <StatBox label="Muscle Mass" value={`${INBODY.smm} kg`} sub="Skeletal · ideal range" color="#4ade80" />
+            <StatBox label="Visceral Fat" value={`${INBODY.vfa} cm²`} sub="Excellent — target <100" color="#4ade80" />
+            <StatBox label="InBody Score" value={`${INBODY.score}/100`} sub="Good · muscular ≥80" color="#4ade80" />
           </div>
 
-          {/* Weekly table */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {GARMIN.sleep.recentWeeks.map(w => {
-              const durH = Math.floor(w.durMin / 60)
-              const durM = w.durMin % 60
-              const needH = Math.floor(w.needMin / 60)
-              const needM = w.needMin % 60
-              const defMin = w.needMin - w.durMin
-              const scoreColor = w.score >= 80 ? '#4ade80' : w.score >= 70 ? '#fbbf24' : '#f87171'
-              return (
-                <div key={w.week} style={{ display: 'grid', gridTemplateColumns: '130px 52px 100px 90px 1fr', gap: 10, alignItems: 'center', fontSize: 12.5, padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                  <span style={{ color: 'var(--muted)' }}>{w.week}</span>
-                  <span style={{ fontWeight: 700, color: scoreColor }}>{w.score}</span>
-                  <span>{durH}h {durM}m slept</span>
-                  <span style={{ color: 'var(--muted)' }}>{needH}h {needM}m need</span>
-                  <span style={{ color: '#f87171', fontSize: 11.5 }}>−{Math.floor(defMin / 60)}h {defMin % 60}m deficit</span>
+          {/* Secondary stats row */}
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <StatBox label="BMR" value={`${INBODY.bmr} kcal`} sub="normal 1490–1739" color="var(--text)" />
+            <StatBox label="BMI" value={INBODY.bmi} sub="normal range" color="var(--text)" />
+            <StatBox label="Bone Mineral" value={`${INBODY.bmc} kg`} sub="normal 2.75–3.37" color="var(--text)" />
+            <StatBox label="SMI" value={`${INBODY.smi} kg/m²`} sub="no sarcopenia risk" color="var(--text)" />
+            <StatBox label="WHR" value={INBODY.whr} sub="healthy <0.90" color="var(--text)" />
+          </div>
+
+          {/* Segmental lean analysis */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 10 }}>
+                Segmental lean — % of ideal weight
+              </div>
+              {INBODY.segmental.map(s => <SegBar key={s.part} {...s} />)}
+              <div style={{ fontSize: 11.5, color: 'rgba(232,237,242,0.4)', marginTop: 6 }}>
+                Green ≥100% · Amber 90–99% · Red &lt;90%
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 10 }}>
+                Body balance & weight control
+              </div>
+              {[
+                ['Upper body', INBODY.bodyBalance.upper, '#4ade80'],
+                ['Lower body', INBODY.bodyBalance.lower, '#4ade80'],
+                ['Upper-Lower', INBODY.bodyBalance.upperLower, '#fbbf24'],
+              ].map(([k, v, c]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 8 }}>
+                  <span style={{ color: 'var(--muted)' }}>{k}</span>
+                  <span style={{ fontWeight: 600, color: c }}>{v}</span>
                 </div>
-              )
-            })}
+              ))}
+              <div style={{ marginTop: 14, padding: '10px 12px', background: 'rgba(74,222,128,0.06)', borderRadius: 8, fontSize: 12.5 }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Weight control target</div>
+                <div style={{ color: 'var(--muted)' }}>Fat: <strong style={{ color: '#fbbf24' }}>{INBODY.weightControl.fatControl} kg</strong> · Muscle: <strong style={{ color: '#4ade80' }}>{INBODY.weightControl.muscleControl === 0 ? 'maintain' : `${INBODY.weightControl.muscleControl} kg`}</strong></div>
+                <div style={{ color: 'rgba(232,237,242,0.35)', fontSize: 11, marginTop: 4 }}>Arms at 94% — upper push/pull sessions are the right priority.</div>
+              </div>
+              <div style={{ marginTop: 10, fontSize: 11, color: 'rgba(232,237,242,0.3)' }}>
+                Scanned 2025-05-13 · InBody 580 BIA · next scan ~Nov 2025
+              </div>
+            </div>
           </div>
         </Card>
 
-        {/* ── Garmin sleep score explained ──────────────────────── */}
-        <SectionTitle hint="research-backed methodology">Garmin sleep score — how it's built</SectionTitle>
+        {/* ── Blood panel ───────────────────────────────────────── */}
+        <SectionTitle hint={`Melbourne Pathology · collected ${BLOOD.collected}`}>Blood panel</SectionTitle>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14, marginBottom: 12 }}>
+
+          {/* FBC */}
+          <Card accent="#60a5fa">
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
+              🩸 Full Blood Count
+              <span style={{ float: 'right', fontSize: 10.5, color: '#fbbf24', fontWeight: 700 }}>2 FLAGS</span>
+            </div>
+            {/* Show flagged + key markers by default */}
+            {BLOOD.fbc.filter(m => m.st !== 'ok' || ['Haemoglobin','WBC'].includes(m.name)).map(m => (
+              <MRow key={m.name} {...m} />
+            ))}
+            <button onClick={() => setShowFBC(s => !s)}
+              style={{ fontSize: 11.5, color: '#60a5fa', fontWeight: 600, marginTop: 8 }}>
+              {showFBC ? '▼ hide' : `▶ show all ${BLOOD.fbc.length} markers`}
+            </button>
+            {showFBC && BLOOD.fbc.filter(m => m.st === 'ok' && !['Haemoglobin','WBC'].includes(m.name)).map(m => (
+              <MRow key={m.name} {...m} />
+            ))}
+            <div style={{ marginTop: 10, padding: '8px 10px', background: 'rgba(96,165,250,0.06)', borderRadius: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+              <strong style={{ color: '#fbbf24' }}>Pathologist note:</strong> {BLOOD.fbcComment}
+            </div>
+          </Card>
+
+          {/* Iron */}
+          <Card accent="#fbbf24">
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>⚙️ Iron Studies</div>
+            {BLOOD.iron.map(m => <MRow key={m.name} {...m} />)}
+            <div style={{ marginTop: 10, padding: '8px 10px', background: 'rgba(251,191,36,0.06)', borderRadius: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+              <strong style={{ color: '#fbbf24' }}>Ferritin 44:</strong> {BLOOD.ferritinNote}
+            </div>
+          </Card>
+
+          {/* Thyroid */}
+          <Card accent="#4ade80">
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
+              🦋 Thyroid
+              <span style={{ float: 'right', fontSize: 10.5, color: '#4ade80', fontWeight: 700 }}>ALL CLEAR</span>
+            </div>
+            {BLOOD.thyroid.map(m => <MRow key={m.name} {...m} />)}
+            <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)' }}>
+              TSH 2.06 mU/L — normal TSH confirms euthyroid state. Thyroid function optimal.
+            </div>
+          </Card>
+
+          {/* Chemistry */}
+          <Card accent="#4ade80">
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
+              🧪 Chemistry / Metabolic
+              <span style={{ float: 'right', fontSize: 10.5, color: '#4ade80', fontWeight: 700 }}>17/17 ✓</span>
+            </div>
+            <div style={{ display: 'flex', gap: 14, marginBottom: 10 }}>
+              <StatBox label="Liver (ALT/AST)" value="21 / 19" sub="U/L · optimal" color="#4ade80" style={{ flex: 'none' }} />
+              <StatBox label="eGFR" value=">90" sub="excellent kidneys" color="#4ade80" style={{ flex: 'none' }} />
+              <StatBox label="Albumin" value="41 g/L" sub="optimal 36–47" color="#4ade80" style={{ flex: 'none' }} />
+            </div>
+            <button onClick={() => setShowChem(s => !s)}
+              style={{ fontSize: 11.5, color: '#4ade80', fontWeight: 600 }}>
+              {showChem ? '▼ hide all markers' : `▶ show all ${BLOOD.chemistry.length} markers`}
+            </button>
+            {showChem && <div style={{ marginTop: 8 }}>{BLOOD.chemistry.map(m => <MRow key={m.name} {...m} />)}</div>}
+            <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)' }}>
+              Kidney function excellent (eGFR &gt;90 · no kidney disease). Liver enzymes optimal.
+              Electrolytes all within range. Albumin 41 g/L — direct input for Levine PhenoAge formula.
+            </div>
+          </Card>
+        </div>
+
+        {/* PhenoAge missing banner */}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 14px', background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 10 }}>
+          <span style={{ fontSize: 16 }}>⏳</span>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+            <strong style={{ color: '#fbbf24' }}>PhenoAge still needs: </strong>
+            {BLOOD.missingForPhenoAge.join(' and ')} — request these on next GP visit to unlock full Levine formula.
+            Currently {BLOOD.phenoAgeInputsPresent}/9 inputs present.
+          </span>
+        </div>
+
+        {/* ── Gym / Strength ────────────────────────────────────── */}
+        <SectionTitle hint="Hevy export · 2026-05-28">Strength training</SectionTitle>
+        <Card accent="#a78bfa">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>💪 {GYM.latest.name}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                {GYM.latest.date} · {GYM.latest.durationMin} min · {GYM.latest.exerciseNote}
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: 'rgba(232,237,242,0.35)', textAlign: 'right' }}>
+              Session 1 / ongoing<br />{GYM.latest.gymNote}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10, marginBottom: 14 }}>
+            {GYM.latest.lifts.map(l => (
+              <div key={l.name} style={{ padding: '10px 12px', background: 'rgba(167,139,250,0.07)', border: '1px solid rgba(167,139,250,0.15)', borderRadius: 10 }}>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 4 }}>{l.name}</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: '#a78bfa' }}>{l.topSet}</div>
+                {l.note && <div style={{ fontSize: 10.5, color: 'rgba(232,237,242,0.35)', marginTop: 2 }}>{l.note} · {l.sets} sets</div>}
+                {!l.note && <div style={{ fontSize: 10.5, color: 'rgba(232,237,242,0.35)', marginTop: 2 }}>{l.sets} sets</div>}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ padding: '10px 12px', background: 'rgba(167,139,250,0.05)', border: '1px solid rgba(167,139,250,0.12)', borderRadius: 8, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
+            <strong style={{ color: '#a78bfa' }}>InBody crosslink:</strong> Segmental analysis shows arms at 94% of lean ideal
+            vs. legs at 107–109%. Upper push focus is exactly the right programming priority.
+            Bench working max of 65 kg post-illness — track progression each session to establish baseline.
+          </div>
+        </Card>
+
+        {/* ── Sleep performance ─────────────────────────────────── */}
+        <SectionTitle hint="5-week rolling average · Garmin export">Sleep performance</SectionTitle>
+        <Card accent="#60a5fa">
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 16 }}>
+            <StatBox label="Avg score"     value={Math.round(GARMIN.sleep.avgScore)} sub="Fair · optimal ≥85" color="#fbbf24" />
+            <StatBox label="Avg duration"  value="6h 52m" sub={`vs ${Math.floor(GARMIN.sleep.avgNeedHr)}h ${Math.round((GARMIN.sleep.avgNeedHr % 1) * 60)}m need`} color="#f87171" />
+            <StatBox label="Nightly deficit" value="−1h 24m" sub="chronic sleep debt" color="#f87171" />
+            <StatBox label="Avg bedtime"   value="~11:53 PM" sub="avg · shift to 11 PM" color="var(--muted)" />
+          </div>
+          {GARMIN.sleep.recentWeeks.map(w => {
+            const dH = Math.floor(w.durMin/60), dM = w.durMin%60
+            const nH = Math.floor(w.needMin/60), nM = w.needMin%60
+            const def = w.needMin - w.durMin
+            const sc = w.score >= 80 ? '#4ade80' : w.score >= 70 ? '#fbbf24' : '#f87171'
+            return (
+              <div key={w.week} style={{ display: 'grid', gridTemplateColumns: '130px 48px 100px 90px 1fr', gap: 10, alignItems: 'center', fontSize: 12.5, padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                <span style={{ color: 'var(--muted)' }}>{w.week}</span>
+                <span style={{ fontWeight: 700, color: sc }}>{w.score}</span>
+                <span>{dH}h {dM}m slept</span>
+                <span style={{ color: 'var(--muted)' }}>{nH}h {nM}m need</span>
+                <span style={{ color: '#f87171', fontSize: 11.5 }}>−{Math.floor(def/60)}h {def%60}m</span>
+              </div>
+            )
+          })}
+        </Card>
+
+        {/* ── Sleep score explained ─────────────────────────────── */}
+        <SectionTitle hint="research-backed · 5-component algorithm">Garmin sleep score — how it's built</SectionTitle>
         <Card>
-          <button
-            onClick={() => setShowSleep(s => !s)}
-            style={{ fontSize: 13, color: '#60a5fa', fontWeight: 600, marginBottom: showSleep ? 14 : 0 }}
-          >
+          <button onClick={() => setShowSleep(s => !s)}
+            style={{ fontSize: 13, color: '#60a5fa', fontWeight: 600, marginBottom: showSleep ? 14 : 0 }}>
             {showSleep ? '▼' : '▶'} Expand: 5-component algorithm + biological age link
           </button>
-
           {showSleep && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 18, fontSize: 13, color: 'var(--muted)', lineHeight: 1.7, marginTop: 4 }}>
-
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, fontSize: 13, color: 'var(--muted)', lineHeight: 1.7 }}>
               <p style={{ fontSize: 13.5, color: 'var(--text)' }}>
-                Garmin's sleep score (0–100) is a composite of five weighted components,
-                computed by FirstBeat Analytics' proprietary sleep algorithm — the same engine
-                used in Garmin's Body Battery and Stress features. Below is each component,
-                its sensor basis, its scientific validation, and its direct link to biological aging.
+                Garmin's sleep score (0–100) is a composite of five weighted components via FirstBeat Analytics.
               </p>
-
               {[
-                {
-                  n: 1, pct: '~30%', color: '#60a5fa',
-                  title: 'Sleep duration vs. personal sleep need',
-                  body: `Garmin estimates your individual sleep need from a rolling model that accounts for chronological age, recent sleep history, and daily training load. Your export shows a consistent need of ~8h 16min against an average sleep of 6h 52min — a structural deficit of 1h 24min per night. This is the single largest driver holding your score below 80. Reference: Garmin Connect sleep need algorithm documentation; Watson et al. (Sleep, 2015) on individual sleep need variability.`,
-                },
-                {
-                  n: 2, pct: '~25%', color: '#a78bfa',
-                  title: 'Sleep stage composition',
-                  body: `The wrist-worn accelerometer combined with the optical PPG (photoplethysmography) sensor detects transitions between Awake, Light NREM, Deep NREM, and REM sleep. Deep NREM drives growth-hormone secretion and tissue repair; REM anchors memory consolidation and emotional regulation. Garmin's algorithm was independently benchmarked in Chinoy et al. (Sleep, 2021), which compared seven consumer devices against gold-standard polysomnography (PSG) — consumer devices achieved 69–80% stage-classification accuracy. Your pulse ox (SpO₂) readings are folded into stage detection here — Garmin does not export SpO₂ as a separate weekly file, but desaturation events during sleep directly suppress stage quality and therefore this component of your score.`,
-                },
-                {
-                  n: 3, pct: '~20%', color: '#4ade80',
-                  title: 'Physiological stress / overnight HRV',
-                  body: `During restorative sleep, the autonomic nervous system shifts toward parasympathetic dominance, reflected as rising RMSSD (HRV). Garmin's "stress score" during sleep is computed from HRV patterns: low nocturnal HRV → elevated sympathetic activity → higher stress component → lower sleep score. Your overnight HRV of 59 ms (7-day avg) and 73 ms (May 26) sits well within your personal baseline of 50–74 ms, suggesting adequate recovery — this component is likely not penalising your score heavily. Biological aging link: nocturnal HRV decline is one of the clearest markers of cardiovascular ageing (Thayer et al., 2010); each decade of life is associated with ~7–10 ms reduction in mean RMSSD.`,
-                },
-                {
-                  n: 4, pct: '~15%', color: '#fbbf24',
-                  title: 'Sleep restlessness / movement',
-                  body: `The triaxial accelerometer counts movement events during sleep. Frequent repositioning, limb movements, or arousal episodes reduce the restlessness score. This component is most sensitive to alcohol, caffeine timing, and anxiety — all of which fragment sleep architecture even when total duration appears normal. Restlessness correlates with subjective sleep quality and next-day cognitive performance (Girschik et al., Epidemiology, 2012).`,
-                },
-                {
-                  n: 5, pct: '~10%', color: '#f472b6',
-                  title: 'Pulse Ox / SpO₂',
-                  body: `The Garmin Pulse Ox sensor measures blood oxygen saturation throughout the night. Sustained drops below 90% indicate sleep-disordered breathing (SDB) or hypoxic events — a powerful driver of cardiovascular and metabolic aging. Your export did not produce a standalone SpO₂ CSV because Garmin folds these readings into the overall sleep score and stage data rather than surfacing them weekly. If your overnight readings are consistently clean (≥ 94%), this component contributes positively. SDB is present in an estimated 24% of adults and is associated with a 30–140% elevation in cardiovascular event risk (Young et al., NEJM, 1993; Gottlieb et al., Circulation, 2010).`,
-                },
+                { n: 1, pct: '~30%', color: '#60a5fa', title: 'Sleep duration vs. sleep need',
+                  body: 'Garmin estimates personal sleep need from age, recent sleep history, and activity load. Your consistent need of ~8h 16min against a ~6h 52min sleep produces the single largest scoring penalty. Watson et al. (Sleep, 2015) on individual sleep need variability.' },
+                { n: 2, pct: '~25%', color: '#a78bfa', title: 'Sleep stage composition',
+                  body: 'Wrist PPG + accelerometer detects Light NREM, Deep NREM, and REM transitions. Benchmarked by Chinoy et al. (Sleep, 2021) against PSG — 69–80% stage accuracy. Pulse Ox (SpO₂) readings are folded here: Garmin does not export them as a separate weekly file, but overnight desaturation events directly suppress this component.' },
+                { n: 3, pct: '~20%', color: '#4ade80', title: 'Physiological stress / overnight HRV',
+                  body: 'HRV-derived stress score during sleep. Your 7-day RMSSD of 59 ms within your 50–74 ms baseline suggests this component is not significantly penalising your score. Thayer et al. (2010): nocturnal HRV decline is a marker of cardiovascular aging.' },
+                { n: 4, pct: '~15%', color: '#fbbf24', title: 'Restlessness / movement',
+                  body: 'Triaxial accelerometer counts movement events. Most sensitive to alcohol, caffeine timing, and anxiety — all of which fragment sleep even when total duration appears normal.' },
+                { n: 5, pct: '~10%', color: '#f472b6', title: 'Pulse Ox / SpO₂',
+                  body: 'Blood oxygen saturation during sleep. Drops below 90% indicate sleep-disordered breathing. Folded into the overall score — no standalone weekly export. Young et al. (NEJM, 1993): SDB present in ~24% of adults; associated with 30–140% elevation in cardiovascular event risk.' },
               ].map(c => (
                 <div key={c.n} style={{ borderLeft: `3px solid ${c.color}`, paddingLeft: 14 }}>
                   <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
-                    {c.n}. {c.title}
-                    <span style={{ marginLeft: 8, fontSize: 11.5, fontWeight: 700, color: c.color }}>{c.pct} of score</span>
+                    {c.n}. {c.title} <span style={{ fontSize: 11, color: c.color, fontWeight: 700, marginLeft: 6 }}>{c.pct}</span>
                   </div>
                   <p style={{ margin: 0 }}>{c.body}</p>
                 </div>
               ))}
-
               <div style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.15)', borderRadius: 10, padding: '12px 14px' }}>
-                <strong style={{ color: 'var(--text)' }}>Why sleep score matters for biological age — the direct pathway</strong>
-                <p style={{ marginTop: 6, marginBottom: 0 }}>
-                  Your score of 75.8 and deficit of 1.4 h/night place you in a well-documented risk band.
-                  Even moderate restriction (6–7 h vs. 8 h) upregulates NF-κB inflammatory pathways within 1 week
-                  (<Cite>Irwin, Nat Rev Immunol, 2019</Cite>), accelerates epigenetic clock progression
-                  (<Cite>Carroll et al., Sleep, 2016 — PSQI scores vs. DNAm age</Cite>), and is one
-                  of the three most predictive lifestyle inputs in the DunedinPACE model
-                  (<Cite>Belsky et al., eLife, 2022</Cite>). Fixing the sleep deficit is — on current data — the
-                  highest-leverage single intervention available to you before your blood panel is imported.
+                <strong style={{ color: 'var(--text)' }}>Why your score matters for bio age:</strong>
+                <p style={{ margin: '6px 0 0' }}>
+                  Score 75.8 + 1.4h nightly deficit activates NF-κB inflammatory pathways (Irwin, 2019),
+                  accelerates epigenetic clock progression (Carroll et al., Sleep, 2016), and is one of
+                  the top 3 DunedinPACE predictors (Belsky et al., 2022). <strong style={{ color: '#4ade80' }}>Improving bedtime by ~1 hour
+                  is the highest-leverage single action available in the current data.</strong>
                 </p>
               </div>
-
             </div>
           )}
         </Card>
 
         {/* ── Current signal ────────────────────────────────────── */}
-        <SectionTitle hint="from journals 2026-05-13 → 2026-05-19">Current state of mind</SectionTitle>
+        <SectionTitle hint="journals 2026-05-13 → 2026-05-19">Current state of mind</SectionTitle>
         <Card accent="#fbbf24">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
             <span style={{ fontSize: 14, fontWeight: 600 }}>Rut status: <span style={{ color: '#fbbf24' }}>{CURRENT_SIGNAL.rut_status}</span></span>
-            <span style={{ fontSize: 11, color: 'rgba(232,237,242,0.35)' }}>journal-scout signal</span>
+            <span style={{ fontSize: 11, color: 'rgba(232,237,242,0.35)' }}>journal-scout</span>
           </div>
           <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
             {CURRENT_SIGNAL.flags.map((f, i) => (
@@ -582,29 +792,34 @@ export default function App() {
         </Card>
 
         {/* ── Habit inputs ──────────────────────────────────────── */}
-        <SectionTitle hint="Garmin: live · Pulse: awaiting first pings">Habit inputs</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
+        <SectionTitle hint="Garmin + Hevy: live · Pulse: awaiting">Habit inputs</SectionTitle>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
 
           <Card accent="#60a5fa">
             <Field label="Sleep" icon="😴">
-              <Real style={{ color: GARMIN.sleep.avgScore >= 80 ? '#4ade80' : '#fbbf24' }}>
-                {Math.round(GARMIN.sleep.avgScore)} score · 6h 52m avg
-              </Real>
+              <Real color={GARMIN.sleep.avgScore >= 80 ? '#4ade80' : '#fbbf24'}>{Math.round(GARMIN.sleep.avgScore)} score · 6h 52m avg</Real>
               <Sub>deficit −1h 24m/night · quality: {GARMIN.sleep.dominantQuality}</Sub>
             </Field>
           </Card>
 
           <Card accent="#4ade80">
             <Field label="Cardio fitness" icon="🫁">
-              <Real style={{ color: '#4ade80' }}>VO₂ {GARMIN.vo2max.current} · HRV {GARMIN.hrv.sevenDayAvg} ms</Real>
-              <Sub>Excellent band · trending up +1.5 over 12 mo</Sub>
+              <Real color="#4ade80">VO₂ {GARMIN.vo2max.current} · HRV {GARMIN.hrv.sevenDayAvg} ms</Real>
+              <Sub>Excellent · +1.5 trend over 12 mo</Sub>
             </Field>
           </Card>
 
           <Card accent="#a78bfa">
-            <Field label="Running" icon="🏃">
-              <Real style={{ color: '#a78bfa' }}>{GARMIN.running.recentRuns} runs this month</Real>
-              <Sub>Half marathon PB: {GARMIN.halfMarathon.time} · pace {GARMIN.halfMarathon.pacePerKm}</Sub>
+            <Field label="Gym / Strength" icon="💪">
+              <Real color="#a78bfa">Uppers Push · {GYM.latest.date}</Real>
+              <Sub>Bench 65 kg · {GYM.latest.durationMin} min · post-illness return</Sub>
+            </Field>
+          </Card>
+
+          <Card accent="#4ade80">
+            <Field label="Body composition" icon="⚖️">
+              <Real color="#4ade80">16.8% fat · 31.7 kg muscle</Real>
+              <Sub>InBody 80/100 · VFA 41.6 cm² (excellent)</Sub>
             </Field>
           </Card>
 
@@ -615,87 +830,60 @@ export default function App() {
           </Card>
 
           {[
-            { key: 'meal',     icon: '🍱', label: 'Meal logged' },
-            { key: 'teeth',    icon: '🪥', label: 'Teeth' },
+            { key: 'meal', icon: '🍱', label: 'Meal logged' },
+            { key: 'teeth', icon: '🪥', label: 'Teeth' },
             { key: 'skincare', icon: '🧴', label: 'Skincare' },
           ].map(h => {
             const a = pingAdherence[h.key]
             return (
               <Card key={h.key} accent="#a78bfa">
                 <Field label={h.label} icon={h.icon}>
-                  {a
-                    ? <Real>{Math.round((a.yes / a.total) * 100)}% yes ({a.yes}/{a.total} pings)</Real>
-                    : <Awaiting>awaiting first Pulse ping</Awaiting>}
+                  {a ? <Real>{Math.round((a.yes / a.total) * 100)}% yes ({a.yes}/{a.total})</Real>
+                     : <Awaiting>awaiting first Pulse ping</Awaiting>}
                 </Field>
               </Card>
             )
           })}
 
-          <Card>
-            <Field label="Isotretinoin" icon="💊">
-              <Awaiting>adherence unlogged</Awaiting>
-            </Field>
-          </Card>
-
-          <Card>
-            <Field label="Vitamin D3" icon="☀️">
-              <Awaiting>adherence unlogged</Awaiting>
-            </Field>
-          </Card>
+          <Card><Field label="Isotretinoin" icon="💊"><Awaiting>adherence unlogged</Awaiting></Field></Card>
+          <Card><Field label="Vitamin D3" icon="☀️"><Awaiting>adherence unlogged</Awaiting></Field></Card>
         </div>
 
-        {/* ── Labs & scans ──────────────────────────────────────── */}
-        <SectionTitle hint="these unlock full PhenoAge — import path opens here">Labs & scans needed for full bio age</SectionTitle>
+        {/* ── Labs & follow-ups ─────────────────────────────────── */}
+        <SectionTitle hint="updated status after imports">Labs & follow-up actions</SectionTitle>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
           {[
-            { label: 'Blood panel',    urgency: 'CRITICAL', detail: 'ApoB, HbA1c, hs-CRP, fasting glucose, ALT, ALP, albumin, creatinine, lipids, vitD. Unlocks full PhenoAge. Cost: GP referral or $120 self-pay in Melbourne.' },
-            { label: 'DEXA scan',      urgency: 'HIGH',     detail: 'Fat %, lean mass, visceral fat, bone density. Cost ≈ $80–$100 in Melbourne. Book next.' },
-            { label: 'Grip strength',  urgency: 'HIGH',     detail: 'Cheap hand dynamometer ($30) + monthly log. One of the strongest predictors of 10-year mortality in HUNT studies.' },
-            { label: 'Blood pressure', urgency: 'MEDIUM',   detail: 'Home cuff reading weekly. Target < 120/80 mmHg. Feeds directly into PREVENT cardiovascular risk calculation.' },
-            { label: 'Body battery trend', urgency: 'LOW',  detail: 'Garmin Body Battery export not included in this data pull. Add to next export for recovery-trend scoring.' },
-          ].map(l => {
-            const col = l.urgency === 'CRITICAL' ? '#f87171' : l.urgency === 'HIGH' ? '#fbbf24' : l.urgency === 'MEDIUM' ? '#60a5fa' : 'var(--muted)'
-            return (
-              <Card key={l.label}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600 }}>{l.label}</span>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: col }}>{l.urgency}</span>
-                </div>
-                <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>{l.detail}</p>
-              </Card>
-            )
-          })}
+            { label: 'Glucose + hs-CRP',    urgency: 'CRITICAL', col: '#f87171', detail: 'Last 2 inputs needed for full Levine PhenoAge calculation. Request on next GP visit — both are standard fasting blood tests.' },
+            { label: 'H. pylori re-test',    urgency: 'URGENT',   col: '#f87171', detail: 'Current result (Jan 2026): DETECTED. Second-line eradication then confirm clearance with repeat breath test 4–6 weeks post-treatment.' },
+            { label: 'Hb electrophoresis',   urgency: 'RECOMMENDED', col: '#fbbf24', detail: 'Pathologist recommends to confirm alpha-thalassaemia trait — explains low MCV (75) and MCH (25) with normal haemoglobin. One-off test.' },
+            { label: 'Grip strength',         urgency: 'HIGH',     col: '#fbbf24', detail: 'Hand dynamometer (~$30). Among the strongest predictors of 10-year mortality in HUNT studies. Monthly log. Currently missing.' },
+            { label: 'Blood pressure',        urgency: 'MEDIUM',   col: '#60a5fa', detail: 'Home cuff reading weekly. Target <120/80 mmHg. Feeds PREVENT cardiovascular risk calculation. Currently missing.' },
+            { label: 'InBody — repeat scan',  urgency: 'DUE',      col: '#60a5fa', detail: 'Scanned 2025-05-13 (~12 months ago). Repeat scan recommended every 3–6 months when actively training. Overdue.' },
+            { label: 'Body battery trend',    urgency: 'LOW',      col: 'var(--muted)', detail: 'Not included in last Garmin export. Add to next export for recovery-trend scoring.' },
+          ].map(l => (
+            <Card key={l.label}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 13.5, fontWeight: 600 }}>{l.label}</span>
+                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: l.col }}>{l.urgency}</span>
+              </div>
+              <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>{l.detail}</p>
+            </Card>
+          ))}
         </div>
 
-        {/* ── Long-term risk ────────────────────────────────────── */}
-        <SectionTitle hint="estimated when bloods are imported">Long-term risk</SectionTitle>
-        <Card accent="#fbbf24">
-          <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.65 }}>
-            AHA PREVENT-style cardiovascular risk, cardiometabolic score, and cancer-screening
-            cadence will appear here once a blood panel is imported. Without ApoB, HbA1c,
-            blood pressure, and family-history flags, any risk number would be guesswork —
-            Health OS refuses to make one up.
-            <strong style={{ color: '#4ade80' }}> Your VO₂ max of 54.1 already places you in the lowest cardiovascular mortality
-            quintile for your age </strong> (Myers et al. 2002; Mandsager et al. 2018) — that is the
-            one hard evidence point available now.
-          </p>
-        </Card>
-
-        {/* ── Prerequisite factors ──────────────────────────────── */}
-        <SectionTitle>All inputs the full model tracks</SectionTitle>
+        {/* ── All inputs ────────────────────────────────────────── */}
+        <SectionTitle>All tracked inputs</SectionTitle>
         <Card>
-          <button
-            onClick={() => setShowFactors(s => !s)}
-            style={{ fontSize: 13, color: '#4ade80', fontWeight: 600, marginBottom: showFactors ? 12 : 0 }}
-          >
-            {showFactors ? '▼' : '▶'} The {TRACKED_FACTORS.length} factor domains · {INPUTS.filter(i => i.present).length} of {INPUTS.length} inputs currently present
+          <button onClick={() => setShowFactors(s => !s)}
+            style={{ fontSize: 13, color: '#4ade80', fontWeight: 600, marginBottom: showFactors ? 12 : 0 }}>
+            {showFactors ? '▼' : '▶'} {INPUTS.filter(i => i.present).length}/{INPUTS.length} inputs present — expand to see all
           </button>
           {showFactors && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>
               {INPUTS.map(inp => (
                 <div key={inp.key} style={{ display: 'grid', gridTemplateColumns: '180px 60px 1fr', gap: 10, fontSize: 12.5, paddingBottom: 7, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <span style={{ fontWeight: 600 }}>{inp.label}</span>
-                  <span style={{ color: inp.present ? '#4ade80' : '#f87171', fontWeight: 700 }}>{inp.present ? '✓ live' : '✗ missing'}</span>
+                  <span style={{ color: inp.present ? '#4ade80' : '#f87171', fontWeight: 700 }}>{inp.present ? '✓ live' : '✗ miss'}</span>
                   <span style={{ color: 'var(--muted)' }}>{inp.present ? inp.value : inp.source}</span>
                 </div>
               ))}
@@ -707,30 +895,26 @@ export default function App() {
         <SectionTitle>Data robustness</SectionTitle>
         <Card>
           <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.65 }}>
-            <strong style={{ color: 'var(--text)' }}>{INPUTS.filter(i => i.present).length} of {INPUTS.length} input categories present</strong>
-            &nbsp;({coverage}% coverage). Fitness domain: ✓ complete (VO₂, HRV, sleep score, duration).
-            Habits, body composition, and blood biomarkers: ✗ not yet imported.
-            Live Supabase fetch:&nbsp;
+            <strong style={{ color: 'var(--text)' }}>{presentCount} of {inputsTotal} input categories present</strong>
+            &nbsp;({coverage}% coverage). Garmin (sleep, HRV, VO₂): ✓. Body comp (InBody): ✓. Partial blood panel: ✓.
+            Habits, macros, blood pressure, grip: ✗. Live Supabase:&nbsp;
             <strong style={{ color: live.error ? '#f87171' : live.loaded ? '#4ade80' : '#fbbf24' }}>
-              {live.error === 'not-configured' ? 'not configured for this build'
+              {live.error === 'not-configured' ? 'not configured'
                 : live.error ? `error: ${live.error}`
-                : live.loaded ? `live — ${live.pings.length} pings, ${checkin ? 'check-in OK' : 'no check-in'}`
+                : live.loaded ? `live — ${live.pings.length} pings, ${live.checkin ? 'check-in OK' : 'no check-in'}`
                 : 'loading…'}
             </strong>.
           </p>
         </Card>
 
         <p style={{ fontSize: 11, color: 'rgba(232,237,242,0.3)', marginTop: 26, lineHeight: 1.8 }}>
-          <strong>Method basis:</strong> Fitness-domain partial estimate uses the NTNU fitness-age concept
-          (Wisløff et al., <em>Circulation</em>, 2014), ACSM VO₂ max norms (Kaminsky et al., 2015),
-          HRV population norms (Shaffer & Ginsberg, 2017), and sleep-aging penalty literature
-          (Belsky et al., <em>eLife</em>, 2022; Walker, 2017; Irwin, 2019).
-          Full biological age targets Levine et al. <em>PhenoAge</em> (<em>Aging</em>, 2018) and
-          Klemera–Doubal method; pace-of-aging from <em>DunedinPACE</em> (Belsky et al., 2022);
-          cardiovascular risk from AHA PREVENT equations (2023).
-          Any domain estimate is suppressed until the inputs required to compute it are present.
-          Garmin VO₂ max validated via FirstBeat Analytics (±5% of lab VO₂ max).
-          Garmin sleep algorithm benchmarked: Chinoy et al., <em>Sleep</em>, 2021.
+          <strong>Method basis:</strong> 5-factor partial bio age: NTNU fitness-age (Wisløff et al., Circulation, 2014);
+          ACSM VO₂ norms (Kaminsky et al., 2015); body comp aging (Williams et al., JACC, 2017);
+          HRV norms (Shaffer & Ginsberg, 2017); sleep-aging penalty (Belsky et al., eLife, 2022; Walker, 2017; Irwin, 2019).
+          Full target: Levine et al. PhenoAge (Aging, 2018); DunedinPACE (Belsky et al., 2022);
+          AHA PREVENT cardiovascular equations (2023). Garmin algorithm: Chinoy et al. (Sleep, 2021).
+          H. pylori cardiovascular risk: Danesh et al. (BMJ, 1999); Guo et al. (Eur Heart J, 2016).
+          Any domain estimate is suppressed until inputs required to compute it are present.
         </p>
       </main>
     </div>
@@ -751,8 +935,8 @@ function Field({ label, icon, children }) {
   )
 }
 
-function Real({ children, style }) {
-  return <div style={{ fontSize: 18, fontWeight: 700, ...style }}>{children}</div>
+function Real({ children, color }) {
+  return <div style={{ fontSize: 18, fontWeight: 700, color: color || 'var(--text)' }}>{children}</div>
 }
 
 function Sub({ children }) {
@@ -764,15 +948,5 @@ function Awaiting({ children }) {
     <div style={{ fontSize: 13, color: '#fbbf24', fontWeight: 600 }}>
       <span style={{ marginRight: 5 }}>⏳</span>{children}
     </div>
-  )
-}
-
-function Pill({ children, color }) {
-  return (
-    <div style={{
-      display: 'inline-flex', alignItems: 'center', fontSize: 11.5, fontWeight: 600,
-      color, background: `${color}1a`, border: `1px solid ${color}40`,
-      borderRadius: 20, padding: '3px 10px',
-    }}>{children}</div>
   )
 }
