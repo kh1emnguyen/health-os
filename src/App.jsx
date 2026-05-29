@@ -85,7 +85,7 @@ const BLOOD = {
     { name: 'Transferrin Sat.',    value: 20,  unit: '%',       ref: '10–45',  st: 'ok' },
     { name: 'S Ferritin',          value: 44,  unit: 'ng/mL',  ref: '30–500', st: 'ok' },
   ],
-  ferritinNote: 'Ferritin 44 ng/mL is within range but low-normal for males (functional optimal 50–80 ng/mL). Active H. pylori infection likely contributing via impaired iron absorption.',
+  ferritinNote: 'Ferritin 44 ng/mL is within range but low-normal for males (functional optimal 50–80 ng/mL). Prior H. pylori infection likely contributed via impaired iron absorption — recheck ferritin at clearance blood test to confirm recovery.',
   thyroid: [{ name: 'TSH', value: 2.06, unit: 'mU/L', ref: '0.5–5.5', st: 'ok' }],
   chemistry: [
     { name: 'Sodium',       value: 140,   unit: 'mmol/L', ref: '135–145',   st: 'ok' },
@@ -109,7 +109,15 @@ const BLOOD = {
   hpylori: {
     collected: '2026-01-25', lab: '4Cyte Pathology',
     result: 'DETECTED', value: 975, unit: 'DPM', threshold: 50,
-    context: 'Collected following a recent eradication attempt. 975 DPM is well above the <50 DPM detection threshold — indicates either eradication failure or re-infection.',
+    // Treatment completed — status updated 2026-05-29
+    treatmentStatus: 'completed',
+    treatmentRegimen: 'Bismuth quadruple therapy · 14 days',
+    treatmentDrugs: 'Colloidal bismuth subcitrate + Nexium MUPS (esomeprazole) + Tetracycline + Metronidazole',
+    treatmentEnded: '2026-05-14',
+    // Earliest clearance UBT: 6 weeks post-antibiotics = ~2026-06-25
+    // Must also stop PPI (Nexium) ≥2 weeks before breath test — stop ~2026-06-11
+    clearanceTestFrom: '2026-06-25',
+    ppiStopDate: '2026-06-11',
   },
   missingForPhenoAge: ['Fasting glucose', 'hs-CRP'],
   phenoAgeInputsPresent: 7,   // of 9 Levine inputs
@@ -376,29 +384,49 @@ export default function App() {
 
       <main style={{ maxWidth: 1000, margin: '0 auto', padding: '24px 24px 70px' }}>
 
-        {/* ── H. Pylori alert — pinned at top ──────────────────── */}
+        {/* ── H. Pylori — treatment completed, awaiting clearance ── */}
         <div style={{ margin: '0 0 20px' }}>
-          <Card accent="#f87171" style={{ padding: '16px 20px' }}>
+          <Card accent="#fbbf24" style={{ padding: '16px 20px' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
               <span style={{ fontSize: 22, lineHeight: 1 }}>🦠</span>
               <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: '#f87171' }}>H. pylori — DETECTED</span>
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>975 DPM · threshold &lt;50 · 4Cyte Pathology · {BLOOD.hpylori.collected}</span>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: '#fbbf24' }}>H. pylori — Treatment completed · awaiting clearance</span>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>Last detected 975 DPM · Jan 2026</span>
                 </div>
-                <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.65, marginBottom: 8 }}>
-                  {BLOOD.hpylori.context} Active infection drives subclinical inflammation —
-                  likely explaining your mildly elevated ESR (14 mm/hr) and contributing to low-normal ferritin
-                  (44 ng/mL) via impaired iron absorption. H. pylori is associated with accelerated
-                  cardiovascular risk in longitudinal cohorts (<Cite>Danesh et al., BMJ 1999; Guo et al., Eur Heart J 2016</Cite>).
-                  Until eradicated, this functions as an active aging accelerator.
+
+                {/* Treatment regimen */}
+                <div style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 8, padding: '10px 12px', marginBottom: 10, fontSize: 12.5 }}>
+                  <div style={{ fontWeight: 600, color: '#fbbf24', marginBottom: 6 }}>✓ Bismuth quadruple therapy — completed 2026-05-14</div>
+                  <div style={{ color: 'var(--muted)', lineHeight: 1.7 }}>
+                    Colloidal bismuth subcitrate · Nexium MUPS (esomeprazole) · Tetracycline · Metronidazole
+                    <br />14-day course · ended {BLOOD.hpylori.treatmentEnded} · {(() => {
+                      const end = new Date('2026-05-14')
+                      const today = new Date('2026-05-29')
+                      return Math.round((today - end) / 86400000)
+                    })()} days ago
+                  </div>
+                </div>
+
+                {/* Clearance timeline */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                  <div style={{ background: 'rgba(251,191,36,0.05)', border: '1px solid rgba(251,191,36,0.15)', borderRadius: 8, padding: '8px 12px', fontSize: 12.5 }}>
+                    <div style={{ color: '#fbbf24', fontWeight: 600, marginBottom: 3 }}>Stop Nexium / PPI</div>
+                    <div style={{ color: 'var(--text)', fontWeight: 700 }}>{BLOOD.hpylori.ppiStopDate}</div>
+                    <div style={{ color: 'var(--muted)', fontSize: 11.5, marginTop: 2 }}>Must stop ≥2 weeks before breath test — PPIs suppress H. pylori activity and cause false negatives.</div>
+                  </div>
+                  <div style={{ background: 'rgba(251,191,36,0.05)', border: '1px solid rgba(251,191,36,0.15)', borderRadius: 8, padding: '8px 12px', fontSize: 12.5 }}>
+                    <div style={{ color: '#fbbf24', fontWeight: 600, marginBottom: 3 }}>Clearance breath test (UBT)</div>
+                    <div style={{ color: 'var(--text)', fontWeight: 700 }}>From {BLOOD.hpylori.clearanceTestFrom}</div>
+                    <div style={{ color: 'var(--muted)', fontSize: 11.5, marginTop: 2 }}>Earliest 6 weeks post-antibiotics. 4Cyte Pathology — same as before, no referral needed for UBT.</div>
+                  </div>
+                </div>
+
+                <p style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6, margin: 0 }}>
+                  Prior infection explains mildly elevated ESR (14 mm/hr) and low-normal ferritin (44 ng/mL) — expect both to improve post-eradication.
+                  Recheck ferritin at the same blood draw as your clearance test.
+                  <Cite> Danesh et al., BMJ 1999; Guo et al., Eur Heart J 2016 — H. pylori linked to cardiovascular risk acceleration until eradicated.</Cite>
                 </p>
-                <div style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 8, padding: '8px 12px', fontSize: 12.5 }}>
-                  <strong style={{ color: '#f87171' }}>Action:</strong>
-                  <span style={{ color: 'var(--muted)' }}> Discuss second-line eradication with Dr Mitchell —
-                  bismuth-based quadruple therapy (14 days) or culture-guided antibiotic selection per
-                  Therapeutic Guidelines: Antibiotic.</span>
-                </div>
               </div>
             </div>
           </Card>
@@ -662,14 +690,58 @@ export default function App() {
           </Card>
         </div>
 
-        {/* PhenoAge missing banner */}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 14px', background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 10 }}>
-          <span style={{ fontSize: 16 }}>⏳</span>
-          <span style={{ fontSize: 13, color: 'var(--muted)' }}>
-            <strong style={{ color: '#fbbf24' }}>PhenoAge still needs: </strong>
-            {BLOOD.missingForPhenoAge.join(' and ')} — request these on next GP visit to unlock full Levine formula.
-            Currently {BLOOD.phenoAgeInputsPresent}/9 inputs present.
-          </span>
+        {/* PhenoAge missing banner — with how-to */}
+        <div style={{ background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 12, padding: '14px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <span style={{ fontSize: 15 }}>⏳</span>
+            <span style={{ fontSize: 13.5, fontWeight: 600, color: '#fbbf24' }}>
+              2 tests unlock full PhenoAge — {BLOOD.phenoAgeInputsPresent}/9 inputs present
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {[
+              {
+                name: 'Fasting glucose',
+                why: 'PhenoAge input #3 (of 9). Reflects insulin sensitivity and metabolic age.',
+                how: [
+                  'Text Dr Mitchell (Cheltenham Medical Centre, 95843055) or book online at cheltenhammedical.com.au',
+                  'Ask for: "fasting BSL" or "fasting glucose" — standard Medicare-covered test, $0 with referral',
+                  'Fast from midnight the night before (water is fine)',
+                  'Walk in to Melbourne Pathology at 145 Centre Dandenong Rd — same centre as your last panel',
+                  'Results same day',
+                ],
+              },
+              {
+                name: 'hs-CRP (high-sensitivity)',
+                why: 'PhenoAge input #4 (of 9). Measures low-grade systemic inflammation — the key longevity marker. ESR (which you had) is not the same test.',
+                how: [
+                  'Request at the same GP visit — say specifically "high-sensitivity CRP" or "hs-CRP"',
+                  'Standard GPs sometimes order regular CRP instead — the words "high-sensitivity" matter',
+                  'Same fasting blood draw, no extra needle, same day as glucose',
+                  'Medicare-covered with referral · same Melbourne Pathology centre',
+                  'Combine with ferritin recheck and Hb electrophoresis at same visit — one draw, four results',
+                ],
+              },
+            ].map(t => (
+              <div key={t.name} style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 10, padding: '12px 14px' }}>
+                <div style={{ fontWeight: 700, fontSize: 13.5, color: '#fbbf24', marginBottom: 4 }}>{t.name}</div>
+                <div style={{ fontSize: 12, color: 'rgba(232,237,242,0.5)', marginBottom: 10, fontStyle: 'italic' }}>{t.why}</div>
+                <ol style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6, padding: 0 }}>
+                  {t.how.map((step, i) => (
+                    <li key={i} style={{ display: 'flex', gap: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>
+                      <span style={{ color: '#fbbf24', fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 10, fontSize: 12, color: 'rgba(232,237,242,0.4)', lineHeight: 1.6 }}>
+            💡 <strong style={{ color: 'rgba(232,237,242,0.6)' }}>Best window:</strong> Combine with your H. pylori clearance blood draw (~late June).
+            One GP visit, one fasting morning, one blood draw → clears glucose, hs-CRP, ferritin recheck, and Hb electrophoresis simultaneously.
+            That single appointment will unlock full Levine PhenoAge.
+          </div>
         </div>
 
         {/* ── Gym / Strength ────────────────────────────────────── */}
@@ -853,8 +925,8 @@ export default function App() {
         <SectionTitle hint="updated status after imports">Labs & follow-up actions</SectionTitle>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
           {[
-            { label: 'Glucose + hs-CRP',    urgency: 'CRITICAL', col: '#f87171', detail: 'Last 2 inputs needed for full Levine PhenoAge calculation. Request on next GP visit — both are standard fasting blood tests.' },
-            { label: 'H. pylori re-test',    urgency: 'URGENT',   col: '#f87171', detail: 'Current result (Jan 2026): DETECTED. Second-line eradication then confirm clearance with repeat breath test 4–6 weeks post-treatment.' },
+            { label: 'Glucose + hs-CRP',    urgency: 'CRITICAL', col: '#f87171', detail: 'Last 2 of 9 PhenoAge inputs. See "How to get them" panel above blood results — one fasting morning at Melbourne Pathology Cheltenham unlocks both.' },
+            { label: 'H. pylori clearance UBT', urgency: 'SCHEDULED', col: '#fbbf24', detail: 'Quadruple therapy ended 14 May 2026. Stop Nexium by 11 Jun → book breath test from 25 Jun at 4Cyte Pathology (no referral needed for UBT).' },
             { label: 'Hb electrophoresis',   urgency: 'RECOMMENDED', col: '#fbbf24', detail: 'Pathologist recommends to confirm alpha-thalassaemia trait — explains low MCV (75) and MCH (25) with normal haemoglobin. One-off test.' },
             { label: 'Grip strength',         urgency: 'HIGH',     col: '#fbbf24', detail: 'Hand dynamometer (~$30). Among the strongest predictors of 10-year mortality in HUNT studies. Monthly log. Currently missing.' },
             { label: 'Blood pressure',        urgency: 'MEDIUM',   col: '#60a5fa', detail: 'Home cuff reading weekly. Target <120/80 mmHg. Feeds PREVENT cardiovascular risk calculation. Currently missing.' },
