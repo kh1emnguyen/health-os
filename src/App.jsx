@@ -65,46 +65,46 @@ const INBODY = {
 const BLOOD = {
   collected: '2025-09-10',
   fbc: [
-    { name: 'Haemoglobin',   value: 146,  unit: 'g/L',      ref: '130–180',   st: 'ok' },
-    { name: 'Haematocrit',   value: 0.44, unit: '',          ref: '0.39–0.51', st: 'ok' },
-    { name: 'Red cell count',value: 5.8,  unit: '×10¹²/L',  ref: '4.3–5.8',   st: 'ok' },
-    { name: 'MCV',           value: 75,   unit: 'fL',        ref: '80–100',    st: 'low' },
-    { name: 'MCH',           value: 25,   unit: 'pg',        ref: '27–34',     st: 'low' },
-    { name: 'MCHC',          value: 334,  unit: 'g/L',       ref: '310–360',   st: 'ok' },
-    { name: 'RDW',           value: 13.2, unit: '%',         ref: '11–17',     st: 'ok' },
-    { name: 'Platelets',     value: 383,  unit: '×10⁹/L',   ref: '150–450',   st: 'ok' },
-    { name: 'WBC',           value: 4.6,  unit: '×10⁹/L',   ref: '4.0–11.0',  st: 'ok' },
-    { name: 'Neutrophils',   value: 2.5,  unit: '×10⁹/L',   ref: '2.0–7.5',   st: 'ok' },
-    { name: 'Lymphocytes',   value: 1.6,  unit: '×10⁹/L',   ref: '1.0–4.0',   st: 'ok' },
-    { name: 'ESR',           value: 14,   unit: 'mm/hr',     ref: '1–10',      st: 'high' },
+    { name: 'Haemoglobin',   value: 146,  unit: 'g/L',      range: '130–180',   st: 'ok' },
+    { name: 'Haematocrit',   value: 0.44, unit: '',          range: '0.39–0.51', st: 'ok' },
+    { name: 'Red cell count',value: 5.8,  unit: '×10¹²/L',  range: '4.3–5.8',   st: 'ok' },
+    { name: 'MCV',           value: 75,   unit: 'fL',        range: '80–100',    st: 'low' },
+    { name: 'MCH',           value: 25,   unit: 'pg',        range: '27–34',     st: 'low' },
+    { name: 'MCHC',          value: 334,  unit: 'g/L',       range: '310–360',   st: 'ok' },
+    { name: 'RDW',           value: 13.2, unit: '%',         range: '11–17',     st: 'ok' },
+    { name: 'Platelets',     value: 383,  unit: '×10⁹/L',   range: '150–450',   st: 'ok' },
+    { name: 'WBC',           value: 4.6,  unit: '×10⁹/L',   range: '4.0–11.0',  st: 'ok' },
+    { name: 'Neutrophils',   value: 2.5,  unit: '×10⁹/L',   range: '2.0–7.5',   st: 'ok' },
+    { name: 'Lymphocytes',   value: 1.6,  unit: '×10⁹/L',   range: '1.0–4.0',   st: 'ok' },
+    { name: 'ESR',           value: 14,   unit: 'mm/hr',     range: '1–10',      st: 'high' },
   ],
   fbcComment: 'Red cell MCV (75 fL) and MCH (25 pg) are below range, but haemoglobin is normal at 146 g/L and ferritin is adequate at 44 ng/mL. The pathologist flags possible alpha-thalassaemia trait — a structural, inherited variant common in Vietnamese and Southeast Asian descent that causes small red cells without functional anaemia. Haemoglobin electrophoresis recommended to confirm. Not incorporated as a biological aging penalty.',
   iron: [
-    { name: 'S Iron',              value: 13,  unit: 'umol/L', ref: '5–30',   st: 'ok' },
-    { name: 'S Transferrin',       value: 2.6, unit: 'g/L',    ref: '2.0–3.2',st: 'ok' },
-    { name: 'Transferrin Sat.',    value: 20,  unit: '%',       ref: '10–45',  st: 'ok' },
-    { name: 'S Ferritin',          value: 44,  unit: 'ng/mL',  ref: '30–500', st: 'ok' },
+    { name: 'S Iron',              value: 13,  unit: 'umol/L', range: '5–30',   st: 'ok' },
+    { name: 'S Transferrin',       value: 2.6, unit: 'g/L',    range: '2.0–3.2',st: 'ok' },
+    { name: 'Transferrin Sat.',    value: 20,  unit: '%',       range: '10–45',  st: 'ok' },
+    { name: 'S Ferritin',          value: 44,  unit: 'ng/mL',  range: '30–500', st: 'ok' },
   ],
   ferritinNote: 'Ferritin 44 ng/mL is within range but low-normal for males (functional optimal 50–80 ng/mL). Prior H. pylori infection likely contributed via impaired iron absorption — recheck ferritin at clearance blood test to confirm recovery.',
-  thyroid: [{ name: 'TSH', value: 2.06, unit: 'mU/L', ref: '0.5–5.5', st: 'ok' }],
+  thyroid: [{ name: 'TSH', value: 2.06, unit: 'mU/L', range: '0.5–5.5', st: 'ok' }],
   chemistry: [
-    { name: 'Sodium',       value: 140,   unit: 'mmol/L', ref: '135–145',   st: 'ok' },
-    { name: 'Potassium',    value: 4.8,   unit: 'mmol/L', ref: '3.5–5.5',   st: 'ok' },
-    { name: 'Chloride',     value: 103,   unit: 'mmol/L', ref: '95–110',    st: 'ok' },
-    { name: 'Bicarbonate',  value: 27,    unit: 'mmol/L', ref: '20–32',     st: 'ok' },
-    { name: 'Urea',         value: 4.9,   unit: 'mmol/L', ref: '3.0–7.5',   st: 'ok' },
-    { name: 'Creatinine',   value: 88,    unit: 'umol/L', ref: '60–110',    st: 'ok' },
-    { name: 'eGFR',         value: '>90', unit: 'mL/min/1.73m²', ref: '>59', st: 'ok' },
-    { name: 'Bilirubin',    value: 8,     unit: 'umol/L', ref: '4–20',      st: 'ok' },
-    { name: 'ALP',          value: 56,    unit: 'U/L',    ref: '45–150',    st: 'ok' },
-    { name: 'GGT',          value: 19,    unit: 'U/L',    ref: '5–50',      st: 'ok' },
-    { name: 'ALT',          value: 21,    unit: 'U/L',    ref: '5–40',      st: 'ok' },
-    { name: 'AST',          value: 19,    unit: 'U/L',    ref: '10–40',     st: 'ok' },
-    { name: 'Total Protein',value: 74,    unit: 'g/L',    ref: '66–83',     st: 'ok' },
-    { name: 'Albumin',      value: 41,    unit: 'g/L',    ref: '36–47',     st: 'ok' },
-    { name: 'Globulin',     value: 33,    unit: 'g/L',    ref: '23–41',     st: 'ok' },
-    { name: 'Calcium',      value: 2.49,  unit: 'mmol/L', ref: '2.15–2.55', st: 'ok' },
-    { name: 'Magnesium',    value: 0.83,  unit: 'mmol/L', ref: '0.70–1.10', st: 'ok' },
+    { name: 'Sodium',       value: 140,   unit: 'mmol/L', range: '135–145',   st: 'ok' },
+    { name: 'Potassium',    value: 4.8,   unit: 'mmol/L', range: '3.5–5.5',   st: 'ok' },
+    { name: 'Chloride',     value: 103,   unit: 'mmol/L', range: '95–110',    st: 'ok' },
+    { name: 'Bicarbonate',  value: 27,    unit: 'mmol/L', range: '20–32',     st: 'ok' },
+    { name: 'Urea',         value: 4.9,   unit: 'mmol/L', range: '3.0–7.5',   st: 'ok' },
+    { name: 'Creatinine',   value: 88,    unit: 'umol/L', range: '60–110',    st: 'ok' },
+    { name: 'eGFR',         value: '>90', unit: 'mL/min/1.73m²', range: '>59', st: 'ok' },
+    { name: 'Bilirubin',    value: 8,     unit: 'umol/L', range: '4–20',      st: 'ok' },
+    { name: 'ALP',          value: 56,    unit: 'U/L',    range: '45–150',    st: 'ok' },
+    { name: 'GGT',          value: 19,    unit: 'U/L',    range: '5–50',      st: 'ok' },
+    { name: 'ALT',          value: 21,    unit: 'U/L',    range: '5–40',      st: 'ok' },
+    { name: 'AST',          value: 19,    unit: 'U/L',    range: '10–40',     st: 'ok' },
+    { name: 'Total Protein',value: 74,    unit: 'g/L',    range: '66–83',     st: 'ok' },
+    { name: 'Albumin',      value: 41,    unit: 'g/L',    range: '36–47',     st: 'ok' },
+    { name: 'Globulin',     value: 33,    unit: 'g/L',    range: '23–41',     st: 'ok' },
+    { name: 'Calcium',      value: 2.49,  unit: 'mmol/L', range: '2.15–2.55', st: 'ok' },
+    { name: 'Magnesium',    value: 0.83,  unit: 'mmol/L', range: '0.70–1.10', st: 'ok' },
   ],
   hpylori: {
     collected: '2026-01-25', lab: '4Cyte Pathology',
@@ -280,8 +280,8 @@ function Pill({ children, color }) {
   )
 }
 
-// Blood marker row
-function MRow({ name, value, unit, ref, st }) {
+// Blood marker row — note: prop is `range` not `ref` (ref is reserved in React)
+function MRow({ name, value, unit, range, st }) {
   const col = st === 'ok' ? 'var(--text)' : st === 'low' ? '#fbbf24' : '#f87171'
   const badge = st !== 'ok' ? (st === 'low' ? '▼ LOW' : '▲ HIGH') : null
   return (
@@ -295,7 +295,7 @@ function MRow({ name, value, unit, ref, st }) {
       <span style={{ color: 'rgba(232,237,242,0.35)', fontSize: 11 }}>{unit}</span>
       {badge
         ? <span style={{ fontSize: 10, fontWeight: 700, color: col }}>{badge}</span>
-        : <span style={{ fontSize: 10, color: 'rgba(232,237,242,0.2)' }}>{ref}</span>}
+        : <span style={{ fontSize: 10, color: 'rgba(232,237,242,0.2)' }}>{range}</span>}
     </div>
   )
 }
